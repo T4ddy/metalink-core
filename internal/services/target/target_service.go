@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	pg "metalink/internal/postgres"
 	redis_client "metalink/internal/redis"
 	"metalink/internal/utils"
 	"sync"
+
+	"gorm.io/gorm"
 )
 
 const TargetRedisKey = "target"
@@ -158,6 +161,62 @@ func (s *TargetService) SeedTestTargets(count int) error {
 	return nil
 }
 
+// SeedTestTargetsPG creates the specified number of test targets in PostgreSQL
+func (s *TargetService) SeedTestTargetsPG(count int) error {
+	db := pg.GetDB()
+
+	// Use batch size of 100 or smaller if count is less than 100
+	batchSize := 1000
+	if count < batchSize {
+		batchSize = count
+	}
+
+	for i := 0; i < count; i += batchSize {
+		// Calculate current batch size (may be smaller for the last batch)
+		currentBatchSize := batchSize
+		if i+batchSize > count {
+			currentBatchSize = count - i
+		}
+
+		var targets []pg.TargetPG
+		for j := 0; j < currentBatchSize; j++ {
+			id, err := utils.GenerateUniqueID(6)
+			if err != nil {
+				return err
+			}
+
+			target := pg.TargetPG{
+				ID:        id,
+				Name:      "Target " + id,
+				Speed:     10,
+				TargetLat: 0,
+				TargetLng: 0,
+				Route:     "eyiaHbyokV@AAsPl@@@mG|@?B_BDQN@HCDGBMB_CzB@BsC@gJAE@sC?cNAY@q@@G?uBAgA?yI@a@EM?k@}D@cCDMGEKKeAIk@Me@EYSgA_@kCoBqMyAeKGk@Ai@EMIGAIEAG_@BaBO?y@IEECG@WqHGFiK}m@YmDEo[U?hA",
+				State:     pg.TargetState(TargetStateWalking),
+			}
+
+			targets = append(targets, target)
+		}
+
+		// Use transaction for batch insert
+		err := db.Transaction(func(tx *gorm.DB) error {
+			result := tx.CreateInBatches(targets, 100)
+			return result.Error
+		})
+
+		if err != nil {
+			return err
+		}
+
+		if i%10000 == 0 {
+			log.Printf("Seeded %d targets of %d in PostgreSQL", i+currentBatchSize, count)
+		}
+	}
+
+	log.Printf("Successfully seeded %d targets in PostgreSQL", count)
+	return nil
+}
+
 // DeleteAllTargets removes all targets from Redis storage
 func (s *TargetService) DeleteAllTargets() error {
 	client := redis_client.GetClient()
@@ -194,4 +253,31 @@ func (s *TargetService) DeleteAllTargets() error {
 
 	log.Printf("Deleted %d targets", len(keys))
 	return nil
+}
+
+// DeleteAllTargetsPG removes all targets from PostgreSQL
+func (s *TargetService) DeleteAllTargetsPG() error {
+	db := pg.GetDB()
+	result := db.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&pg.TargetPG{})
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	log.Printf("Deleted %d targets from PostgreSQL", result.RowsAffected)
+	return nil
+}
+
+// GetAllTargetsPG retrieves all targets from PostgreSQL
+func (s *TargetService) GetAllTargetsPG() ([]*pg.TargetPG, error) {
+	db := pg.GetDB()
+	var targets []*pg.TargetPG
+
+	result := db.Find(&targets)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	log.Printf("Found %d targets in PostgreSQL", len(targets))
+	return targets, nil
 }

@@ -19,6 +19,12 @@ func Init(url string) *gorm.DB {
 		log.Fatalln(err)
 	}
 
+	// AutoMigrate models
+	err = db.AutoMigrate(&TargetPG{})
+	if err != nil {
+		log.Fatalln("Failed to migrate Target model:", err)
+	}
+
 	// db.AutoMigrate(&models.Route{}, &models.RouteProgress{})
 
 	// Set global DB variable
