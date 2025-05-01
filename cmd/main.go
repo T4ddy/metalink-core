@@ -2,9 +2,9 @@ package main
 
 import (
 	"log"
-	"metalink/internal/api"
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
+	"metalink/internal/worker"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -37,12 +37,15 @@ func main() {
 	redis.Init(redisUrl)
 
 	// Initialize application routes
-	config := map[string]string{
-		"port":     port,
-		"dbUrl":    dbUrl,
-		"redisUrl": redisUrl,
-	}
-	api.SetupRouter(r, config)
+	// config := map[string]string{
+	// 	"port":     port,
+	// 	"dbUrl":    dbUrl,
+	// 	"redisUrl": redisUrl,
+	// }
+	// api.SetupRouter(r, config)
+
+	// Workers
+	go worker.StartMovementWorker()
 
 	r.Run(port)
 }
