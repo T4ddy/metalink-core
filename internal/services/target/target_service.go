@@ -249,6 +249,9 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 	ctx := context.Background()
 	pipe := client.Pipeline()
 
+	// Собираем ключи для очистки флагов после успешного сохранения
+	keys := make([]string, 0, len(dirtyTargets))
+
 	for id, target := range dirtyTargets {
 		targetKey := fmt.Sprintf("%s:%s", TargetRedisKey, id)
 		targetJSON, err := json.Marshal(target)
@@ -256,12 +259,16 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 			return err
 		}
 		pipe.Set(ctx, targetKey, targetJSON, 0)
+		keys = append(keys, id)
 	}
 
 	_, err := pipe.Exec(ctx)
 	if err != nil {
 		return err
 	}
+
+	// Очищаем флаги только после успешного сохранения
+	s.storage.ClearDirty(keys)
 
 	log.Printf("Saved %d targets to Redis", len(dirtyTargets))
 	return nil

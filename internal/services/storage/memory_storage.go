@@ -80,19 +80,28 @@ func (s *MemoryStorage[K, V]) GetAllValues() []V {
 	return result
 }
 
-// GetDirty returns all dirty objects and clears flags
+// GetDirty returns all dirty objects without clearing flags
 func (s *MemoryStorage[K, V]) GetDirty() map[K]V {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 
 	result := make(map[K]V)
 	for k := range s.dirty {
 		if v, exists := s.data[k]; exists {
 			result[k] = v
 		}
-		delete(s.dirty, k)
 	}
 	return result
+}
+
+// ClearDirty clears dirty flags for provided keys
+func (s *MemoryStorage[K, V]) ClearDirty(keys []K) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	for _, k := range keys {
+		delete(s.dirty, k)
+	}
 }
 
 // ForEach executes a function for each object

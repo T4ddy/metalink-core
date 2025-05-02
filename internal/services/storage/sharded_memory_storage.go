@@ -160,24 +160,46 @@ func (s *ShardedMemoryStorage[K, V]) GetAllValues() []V {
 	return result
 }
 
-// GetDirty returns all dirty objects from all shards
+// GetDirty returns all dirty objects from all shards without clearing flags
 func (s *ShardedMemoryStorage[K, V]) GetDirty() map[K]V {
 	result := make(map[K]V)
 
 	for _, shard := range s.shards {
-		shard.mutex.Lock()
+		shard.mutex.RLock()
 
 		for k := range shard.dirty {
 			if v, exists := shard.data[k]; exists {
 				result[k] = v
 			}
-			delete(shard.dirty, k)
+		}
+
+		shard.mutex.RUnlock()
+	}
+
+	return result
+}
+
+// ClearDirty clears dirty flags for provided keys
+func (s *ShardedMemoryStorage[K, V]) ClearDirty(keys []K) {
+	// Group keys by shard
+	shardToKeys := make(map[int][]K)
+
+	for _, key := range keys {
+		shardIndex := s.keyToShard(key)
+		shardToKeys[shardIndex] = append(shardToKeys[shardIndex], key)
+	}
+
+	// Clear dirty flags in each shard
+	for shardIndex, keysForShard := range shardToKeys {
+		shard := s.shards[shardIndex]
+		shard.mutex.Lock()
+
+		for _, key := range keysForShard {
+			delete(shard.dirty, key)
 		}
 
 		shard.mutex.Unlock()
 	}
-
-	return result
 }
 
 // ForEach executes a function for each object
