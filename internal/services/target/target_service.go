@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pg "metalink/internal/postgres"
+	pg_models "metalink/internal/postgres/models"
 	redis_client "metalink/internal/redis"
 	"metalink/internal/services/storage"
 
@@ -79,9 +80,9 @@ func (s *TargetService) InitService(ctx context.Context) error {
 }
 
 // loadAllTargetsFromPG loads all targets from PostgreSQL
-func (s *TargetService) loadAllTargetsFromPG() ([]*pg.TargetPG, error) {
+func (s *TargetService) loadAllTargetsFromPG() ([]*pg_models.TargetPG, error) {
 	db := pg.GetDB()
-	var targets []*pg.TargetPG
+	var targets []*pg_models.TargetPG
 
 	result := db.Find(&targets)
 	if result.Error != nil {
@@ -144,7 +145,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 }
 
 // mergeTargetsIntoMemory merges targets from PostgreSQL and Redis into memory storage
-func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*pg.TargetPG, redisTargets map[string]*Target) int {
+func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*pg_models.TargetPG, redisTargets map[string]*Target) int {
 	// First load all PostgreSQL targets into memory
 	for _, pgTarget := range pgTargets {
 		target := &Target{
@@ -284,17 +285,17 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 		}
 
 		batch := allTargets[i:end]
-		pgTargets := make([]pg.TargetPG, len(batch))
+		pgTargets := make([]pg_models.TargetPG, len(batch))
 
 		for j, target := range batch {
-			pgTargets[j] = pg.TargetPG{
+			pgTargets[j] = pg_models.TargetPG{
 				ID:        target.ID,
 				Name:      target.Name,
 				Speed:     target.Speed,
 				TargetLat: target.TargetLat,
 				TargetLng: target.TargetLng,
 				Route:     target.Route,
-				State:     pg.TargetState(target.State),
+				State:     pg_models.TargetState(target.State),
 				UpdatedAt: time.Unix(target.UpdatedAt, 0),
 			}
 		}

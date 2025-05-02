@@ -2,7 +2,7 @@ package postgres
 
 import (
 	"log"
-	// "metalink/internal/models"
+	pg_models "metalink/internal/postgres/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -20,7 +20,7 @@ func Init(url string) *gorm.DB {
 	}
 
 	// AutoMigrate models
-	err = db.AutoMigrate(&TargetPG{})
+	err = db.AutoMigrate(&pg_models.TargetPG{})
 	if err != nil {
 		log.Fatalln("Failed to migrate Target model:", err)
 	}

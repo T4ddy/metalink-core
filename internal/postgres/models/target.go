@@ -1,4 +1,4 @@
-package postgres
+package pg_models
 
 import (
 	"time"
