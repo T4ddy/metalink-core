@@ -9,6 +9,7 @@ import (
 	redis_client "metalink/internal/redis"
 	"metalink/internal/utils"
 	"sync"
+	"sync/atomic"
 
 	"gorm.io/gorm"
 )
@@ -210,6 +211,103 @@ func (s *TargetService) SeedTestTargetsPG(count int) error {
 
 		if i%10000 == 0 {
 			log.Printf("Seeded %d targets of %d in PostgreSQL", i+currentBatchSize, count)
+		}
+	}
+
+	log.Printf("Successfully seeded %d targets in PostgreSQL", count)
+	return nil
+}
+
+// SeedTestTargetsPGParallel creates the specified number of test targets in PostgreSQL in parallel
+func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
+	db := pg.GetDB()
+
+	// Определяем количество воркеров
+	numWorkers := 8
+	batchSize := 500
+
+	// Рассчитываем количество целей на каждого воркера
+	targetsPerWorker := count / numWorkers
+
+	// Создаем wait group для ожидания завершения всех горутин
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+
+	// Создаем канал для сбора ошибок
+	errChan := make(chan error, numWorkers)
+
+	// Создаем атомарный счетчик для отслеживания прогресса
+	var created int64
+
+	// Запускаем горутины-воркеры
+	for w := 0; w < numWorkers; w++ {
+		// Рассчитываем начало и конец для этого воркера
+		start := w * targetsPerWorker
+		end := start + targetsPerWorker
+		if w == numWorkers-1 {
+			end = count // Последний воркер берет остаток
+		}
+
+		go func(workerID, start, end int) {
+			defer wg.Done()
+
+			// Обрабатываем батчи в диапазоне этого воркера
+			for i := start; i < end; i += batchSize {
+				// Рассчитываем текущий размер батча
+				currentBatchSize := batchSize
+				if i+batchSize > end {
+					currentBatchSize = end - i
+				}
+
+				var targets []pg.TargetPG
+				for j := 0; j < currentBatchSize; j++ {
+					id, err := utils.GenerateUniqueID(6)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					target := pg.TargetPG{
+						ID:        id,
+						Name:      "Target " + id,
+						Speed:     10,
+						TargetLat: 0,
+						TargetLng: 0,
+						Route:     "eyiaHbyokV@AAsPl@@@mG|@?B_BDQN@HCDGBMB_CzB@BsC@gJAE@sC?cNAY@q@@G?uBAgA?yI@a@EM?k@}D@cCDMGEKKeAIk@Me@EYSgA_@kCoBqMyAeKGk@Ai@EMIGAIEAG_@BaBO?y@IEECG@WqHGFiK}m@YmDEo[U?hA",
+						State:     pg.TargetState(TargetStateWalking),
+					}
+
+					targets = append(targets, target)
+				}
+
+				// Используем транзакцию для пакетной вставки
+				err := db.Transaction(func(tx *gorm.DB) error {
+					result := tx.CreateInBatches(targets, currentBatchSize)
+					return result.Error
+				})
+
+				if err != nil {
+					errChan <- err
+					return
+				}
+
+				// Увеличиваем атомарный счетчик для отслеживания прогресса
+				newCount := atomic.AddInt64(&created, int64(currentBatchSize))
+				if newCount%10000 == 0 || newCount == int64(count) {
+					log.Printf("Seeded %d targets of %d in PostgreSQL", newCount, count)
+				}
+			}
+		}(w, start, end)
+	}
+
+	// Ждем завершения всех воркеров
+	wg.Wait()
+	close(errChan)
+
+	// Проверяем наличие ошибок
+	for err := range errChan {
+		if err != nil {
+			return err
 		}
 	}
 
