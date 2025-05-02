@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"metalink/internal/models"
 	pg "metalink/internal/postgres"
-	pg_models "metalink/internal/postgres/models"
 	redis_client "metalink/internal/redis"
 	"metalink/internal/services/storage"
 
@@ -19,7 +19,7 @@ import (
 const TargetRedisKey = "target"
 
 type TargetService struct {
-	storage     storage.Storage[string, *Target]
+	storage     storage.Storage[string, *models.TargetU]
 	initialized bool
 	initMutex   sync.RWMutex
 }
@@ -33,7 +33,7 @@ var (
 func GetTargetService() *TargetService {
 	targetServiceOnce.Do(func() {
 		targetServiceInstance = &TargetService{
-			storage: storage.NewMemoryStorage[string, *Target](),
+			storage: storage.NewMemoryStorage[string, *models.TargetU](),
 		}
 	})
 	return targetServiceInstance
@@ -80,20 +80,25 @@ func (s *TargetService) InitService(ctx context.Context) error {
 }
 
 // loadAllTargetsFromPG loads all targets from PostgreSQL
-func (s *TargetService) loadAllTargetsFromPG() ([]*pg_models.TargetPG, error) {
+func (s *TargetService) loadAllTargetsFromPG() ([]*models.TargetU, error) {
 	db := pg.GetDB()
-	var targets []*pg_models.TargetPG
+	var targets []*models.TargetU
 
 	result := db.Find(&targets)
 	if result.Error != nil {
 		return nil, result.Error
 	}
 
+	// Update the UpdatedAt field from PostgreSQL timestamp
+	for _, target := range targets {
+		target.UpdatedAt = target.GormUpdatedAt.Unix()
+	}
+
 	return targets, nil
 }
 
 // loadAllTargetsFromRedis loads all targets from Redis
-func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*Target, error) {
+func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*models.TargetU, error) {
 	client := redis_client.GetClient()
 	var cursor uint64
 	var keys []string
@@ -113,7 +118,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 	}
 
 	if len(keys) == 0 {
-		return make(map[string]*Target), nil
+		return make(map[string]*models.TargetU), nil
 	}
 
 	// Retrieve all targets in a single operation
@@ -122,7 +127,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 		return nil, err
 	}
 
-	targets := make(map[string]*Target)
+	targets := make(map[string]*models.TargetU)
 	for _, data := range jsonData {
 		if data == nil {
 			continue
@@ -133,7 +138,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 			continue
 		}
 
-		target := &Target{}
+		target := &models.TargetU{}
 		if err := json.Unmarshal([]byte(jsonStr), target); err != nil {
 			continue
 		}
@@ -145,20 +150,10 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 }
 
 // mergeTargetsIntoMemory merges targets from PostgreSQL and Redis into memory storage
-func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*pg_models.TargetPG, redisTargets map[string]*Target) int {
+func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.TargetU, redisTargets map[string]*models.TargetU) int {
 	// First load all PostgreSQL targets into memory
 	for _, pgTarget := range pgTargets {
-		target := &Target{
-			ID:        pgTarget.ID,
-			Name:      pgTarget.Name,
-			Speed:     pgTarget.Speed,
-			TargetLat: pgTarget.TargetLat,
-			TargetLng: pgTarget.TargetLng,
-			Route:     pgTarget.Route,
-			State:     TargetState(pgTarget.State),
-			UpdatedAt: pgTarget.UpdatedAt.Unix(), // Convert time to timestamp
-		}
-		s.storage.Set(target.ID, target)
+		s.storage.Set(pgTarget.ID, pgTarget)
 	}
 
 	// Override with Redis data where available (more recent)
@@ -191,8 +186,8 @@ func (s *TargetService) ProcessTargetMovements() {
 
 	// For each target, calculate new position
 	processedCount := 0
-	s.storage.ForEach(func(id string, target *Target) bool {
-		if target.State == TargetStateWalking {
+	s.storage.ForEach(func(id string, target *models.TargetU) bool {
+		if target.State == models.TargetStateWalking {
 			// Calculate new position based on route and speed
 			// This would be your movement logic
 			s.updateTargetPosition(target)
@@ -206,7 +201,7 @@ func (s *TargetService) ProcessTargetMovements() {
 }
 
 // updateTargetPosition updates a target's position based on its speed and route
-func (s *TargetService) updateTargetPosition(target *Target) {
+func (s *TargetService) updateTargetPosition(target *models.TargetU) {
 	// Example movement logic
 	// In a real implementation, you'd decode the route, calculate the next position, etc.
 
@@ -218,7 +213,7 @@ func (s *TargetService) updateTargetPosition(target *Target) {
 // StartPersistenceWorkers starts workers for persisting data to Redis and PostgreSQL
 func (s *TargetService) StartPersistenceWorkers() {
 	// Redis persistence (every minute)
-	redisTimer := time.NewTicker(5 * time.Second)
+	redisTimer := time.NewTicker(3 * time.Second)
 	go func() {
 		for range redisTimer.C {
 			if err := s.SaveDirtyTargetsToRedis(); err != nil {
@@ -228,7 +223,7 @@ func (s *TargetService) StartPersistenceWorkers() {
 	}()
 
 	// PostgreSQL persistence (every hour)
-	pgTimer := time.NewTicker(30 * time.Second)
+	pgTimer := time.NewTicker(20 * time.Second)
 	go func() {
 		for range pgTimer.C {
 			if err := s.SaveAllTargetsToPG(); err != nil {
@@ -249,7 +244,7 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 	ctx := context.Background()
 	pipe := client.Pipeline()
 
-	// Собираем ключи для очистки флагов после успешного сохранения
+	// Collect keys to clear flags after successful save
 	keys := make([]string, 0, len(dirtyTargets))
 
 	for id, target := range dirtyTargets {
@@ -267,7 +262,7 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 		return err
 	}
 
-	// Очищаем флаги только после успешного сохранения
+	// Clear flags only after successful save
 	s.storage.ClearDirty(keys)
 
 	log.Printf("Saved %d targets to Redis", len(dirtyTargets))
@@ -292,24 +287,13 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 		}
 
 		batch := allTargets[i:end]
-		pgTargets := make([]pg_models.TargetPG, len(batch))
-
-		for j, target := range batch {
-			pgTargets[j] = pg_models.TargetPG{
-				ID:        target.ID,
-				Name:      target.Name,
-				Speed:     target.Speed,
-				TargetLat: target.TargetLat,
-				TargetLng: target.TargetLng,
-				Route:     target.Route,
-				State:     pg_models.TargetState(target.State),
-				UpdatedAt: time.Unix(target.UpdatedAt, 0),
-			}
-		}
 
 		err := db.Transaction(func(tx *gorm.DB) error {
-			for _, pgTarget := range pgTargets {
-				result := tx.Save(&pgTarget)
+			for _, target := range batch {
+				// Synchronize GORM fields before saving
+				target.GormUpdatedAt = time.Unix(target.UpdatedAt, 0)
+
+				result := tx.Save(target)
 				if result.Error != nil {
 					return result.Error
 				}
