@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"log"
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
+	"metalink/internal/services/target"
 	"metalink/internal/worker"
 
 	"github.com/gin-gonic/gin"
@@ -35,6 +37,19 @@ func main() {
 	r := gin.Default()
 	postgres.Init(dbUrl)
 	redis.Init(redisUrl)
+
+	// Initialize target service
+	targetService := target.GetTargetService()
+	ctx := context.Background()
+
+	// Load data from PostgreSQL and Redis
+	if err := targetService.InitService(ctx); err != nil {
+		log.Fatalf("Failed to initialize target service: %v", err)
+	}
+
+	// Start background workers
+	targetService.StartMovementProcessing()
+	targetService.StartPersistenceWorkers()
 
 	// Initialize application routes
 	// config := map[string]string{

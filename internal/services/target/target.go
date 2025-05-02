@@ -8,4 +8,5 @@ type Target struct {
 	TargetLng float32     `json:"target_lng"`
 	Route     string      `json:"route"`
 	State     TargetState `json:"state"`
+	UpdatedAt int64       `json:"updated_at"` // Unix timestamp for last update
 }
