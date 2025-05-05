@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"log"
+	"metalink/internal/api"
+	"metalink/internal/config"
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
 	"metalink/internal/service/target"
@@ -13,31 +15,59 @@ import (
 )
 
 func main() {
-	viper.SetConfigFile("./internal/env/.env")
-	viper.ReadInConfig()
-
-	port := viper.GetString("PORT")
-	if port == "" {
-		log.Println("PORT environment variable is not set")
-		port = ":3000" // Default port
+	// Load configuration
+	cfg, err := loadConfiguration()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	dbUrl := viper.GetString("DB_URL")
-	if dbUrl == "" {
-		log.Println("DB_URL environment variable is not set")
-		dbUrl = "postgres://postgres:postgres@localhost:5432/postgres" // Default dbUrl
+	// Initialize database and cache
+	initializeDatabaseAndCache(cfg)
+
+	// Initialize and start services
+	targetService := initializeServices()
+
+	// Start workers
+	startWorkers(targetService)
+
+	// Setup and run API server
+	runAPIServer(cfg)
+}
+
+func loadConfiguration() (config.Config, error) {
+	// Try loading from config package first
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		// Fallback to loading from .env file directly
+		log.Println("Failed to load config via config package, using fallback method")
+
+		// Using environment file as fallback
+		cfg.Port = getEnvWithDefault("PORT", ":3000")
+		cfg.DBUrl = getEnvWithDefault("DB_URL", "postgres://postgres:postgres@localhost:5432/postgres")
+		cfg.RedisUrl = getEnvWithDefault("REDIS_URL", "redis://localhost:6379/0")
 	}
 
-	redisUrl := viper.GetString("REDIS_URL")
-	if redisUrl == "" {
-		log.Println("REDIS_URL environment variable is not set")
-		redisUrl = "redis://localhost:6379/0" // Default redisUrl
+	return cfg, nil
+}
+
+func getEnvWithDefault(key, defaultValue string) string {
+	value := viper.GetString(key)
+	if value == "" {
+		log.Printf("%s environment variable is not set, using default", key)
+		return defaultValue
 	}
+	return value
+}
 
-	r := gin.Default()
-	postgres.Init(dbUrl)
-	redis.Init(redisUrl)
+func initializeDatabaseAndCache(cfg config.Config) {
+	// Initialize PostgreSQL
+	postgres.Init(cfg.DBUrl)
 
+	// Initialize Redis
+	redis.Init(cfg.RedisUrl)
+}
+
+func initializeServices() *target.TargetService {
 	// Initialize target service
 	targetService := target.GetTargetService()
 	ctx := context.Background()
@@ -47,19 +77,29 @@ func main() {
 		log.Fatalf("Failed to initialize target service: %v", err)
 	}
 
-	// Start background workers
+	return targetService
+}
+
+func startWorkers(targetService *target.TargetService) {
+	// Start background workers managed by worker package
 	worker.StartAllWorkers()
 
-	// TODO: move it
+	// Start persistence workers (should be moved to worker package)
 	targetService.StartPersistenceWorkers()
+}
 
-	// Initialize application routes
-	// config := map[string]string{
-	// 	"port":     port,
-	// 	"dbUrl":    dbUrl,
-	// 	"redisUrl": redisUrl,
-	// }
-	// api.SetupRouter(r, config)
+func runAPIServer(cfg config.Config) {
+	// Initialize Gin router
+	r := gin.Default()
 
-	r.Run(port)
+	// Configure API routes
+	config := map[string]string{
+		"port":     cfg.Port,
+		"dbUrl":    cfg.DBUrl,
+		"redisUrl": cfg.RedisUrl,
+	}
+	api.SetupRouter(r, config)
+
+	// Start the server
+	r.Run(cfg.Port)
 }
