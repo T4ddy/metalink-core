@@ -19,7 +19,7 @@ import (
 const TargetRedisKey = "target"
 
 type TargetService struct {
-	storage     storage.Storage[string, *models.TargetU]
+	storage     storage.Storage[string, *models.Target]
 	initialized bool
 	initMutex   sync.RWMutex
 }
@@ -33,7 +33,7 @@ var (
 func GetTargetService() *TargetService {
 	targetServiceOnce.Do(func() {
 		targetServiceInstance = &TargetService{
-			storage: storage.NewMemoryStorage[string, *models.TargetU](),
+			storage: storage.NewMemoryStorage[string, *models.Target](),
 		}
 	})
 	return targetServiceInstance
@@ -80,25 +80,20 @@ func (s *TargetService) InitService(ctx context.Context) error {
 }
 
 // loadAllTargetsFromPG loads all targets from PostgreSQL
-func (s *TargetService) loadAllTargetsFromPG() ([]*models.TargetU, error) {
+func (s *TargetService) loadAllTargetsFromPG() ([]*models.Target, error) {
 	db := pg.GetDB()
-	var targets []*models.TargetU
+	var targets []*models.Target
 
 	result := db.Find(&targets)
 	if result.Error != nil {
 		return nil, result.Error
 	}
 
-	// Update the UpdatedAt field from PostgreSQL timestamp
-	for _, target := range targets {
-		target.UpdatedAt = target.GormUpdatedAt.Unix()
-	}
-
 	return targets, nil
 }
 
 // loadAllTargetsFromRedis loads all targets from Redis
-func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*models.TargetU, error) {
+func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*models.Target, error) {
 	client := redis_client.GetClient()
 	var cursor uint64
 	var keys []string
@@ -118,7 +113,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 	}
 
 	if len(keys) == 0 {
-		return make(map[string]*models.TargetU), nil
+		return make(map[string]*models.Target), nil
 	}
 
 	// Retrieve all targets in a single operation
@@ -127,7 +122,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 		return nil, err
 	}
 
-	targets := make(map[string]*models.TargetU)
+	targets := make(map[string]*models.Target)
 	for _, data := range jsonData {
 		if data == nil {
 			continue
@@ -138,7 +133,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 			continue
 		}
 
-		target := &models.TargetU{}
+		target := &models.Target{}
 		if err := json.Unmarshal([]byte(jsonStr), target); err != nil {
 			continue
 		}
@@ -150,7 +145,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 }
 
 // mergeTargetsIntoMemory merges targets from PostgreSQL and Redis into memory storage
-func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.TargetU, redisTargets map[string]*models.TargetU) int {
+func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.Target, redisTargets map[string]*models.Target) int {
 	// First load all PostgreSQL targets into memory
 	for _, pgTarget := range pgTargets {
 		s.storage.Set(pgTarget.ID, pgTarget)
@@ -161,7 +156,7 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.TargetU, redi
 	for id, redisTarget := range redisTargets {
 		// Check if we should update based on timestamp
 		existingTarget, exists := s.storage.Get(id)
-		if !exists || redisTarget.UpdatedAt > existingTarget.UpdatedAt {
+		if !exists || redisTarget.UpdatedAt.After(existingTarget.UpdatedAt) {
 			s.storage.Set(id, redisTarget)
 			mergedCount++
 		}
@@ -186,7 +181,7 @@ func (s *TargetService) ProcessTargetMovements() {
 
 	// For each target, calculate new position
 	processedCount := 0
-	s.storage.ForEach(func(id string, target *models.TargetU) bool {
+	s.storage.ForEach(func(id string, target *models.Target) bool {
 		if target.State == models.TargetStateWalking {
 			// Calculate new position based on route and speed
 			// This would be your movement logic
@@ -201,12 +196,12 @@ func (s *TargetService) ProcessTargetMovements() {
 }
 
 // updateTargetPosition updates a target's position based on its speed and route
-func (s *TargetService) updateTargetPosition(target *models.TargetU) {
+func (s *TargetService) updateTargetPosition(target *models.Target) {
 	// Example movement logic
 	// In a real implementation, you'd decode the route, calculate the next position, etc.
 
 	// Mark the target as updated
-	target.UpdatedAt = time.Now().Unix()
+	target.UpdatedAt = time.Now()
 	s.storage.Set(target.ID, target)
 }
 
@@ -290,9 +285,6 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 
 		err := db.Transaction(func(tx *gorm.DB) error {
 			for _, target := range batch {
-				// Synchronize GORM fields before saving
-				target.GormUpdatedAt = time.Unix(target.UpdatedAt, 0)
-
 				result := tx.Save(target)
 				if result.Error != nil {
 					return result.Error
