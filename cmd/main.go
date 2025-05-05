@@ -5,7 +5,7 @@ import (
 	"log"
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
-	"metalink/internal/services/target"
+	"metalink/internal/service/target"
 	"metalink/internal/worker"
 
 	"github.com/gin-gonic/gin"
@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	viper.SetConfigFile("./internal/envs/.env")
+	viper.SetConfigFile("./internal/env/.env")
 	viper.ReadInConfig()
 
 	port := viper.GetString("PORT")

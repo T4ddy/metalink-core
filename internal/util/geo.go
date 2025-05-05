@@ -1,4 +1,4 @@
-package utils
+package util
 
 import (
 	"github.com/golang/geo/s1"

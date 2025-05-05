@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
-	"metalink/internal/models"
+	"metalink/internal/model"
 	pg "metalink/internal/postgres"
 	redis_client "metalink/internal/redis"
-	"metalink/internal/services/storage"
+	"metalink/internal/service/storage"
 
 	"gorm.io/gorm"
 )
@@ -19,7 +19,7 @@ import (
 const TargetRedisKey = "target"
 
 type TargetService struct {
-	storage     storage.Storage[string, *models.Target]
+	storage     storage.Storage[string, *model.Target]
 	initialized bool
 	initMutex   sync.RWMutex
 }
@@ -33,7 +33,7 @@ var (
 func GetTargetService() *TargetService {
 	targetServiceOnce.Do(func() {
 		targetServiceInstance = &TargetService{
-			storage: storage.NewMemoryStorage[string, *models.Target](),
+			storage: storage.NewMemoryStorage[string, *model.Target](),
 		}
 	})
 	return targetServiceInstance
@@ -80,9 +80,9 @@ func (s *TargetService) InitService(ctx context.Context) error {
 }
 
 // loadAllTargetsFromPG loads all targets from PostgreSQL
-func (s *TargetService) loadAllTargetsFromPG() ([]*models.Target, error) {
+func (s *TargetService) loadAllTargetsFromPG() ([]*model.Target, error) {
 	db := pg.GetDB()
-	var targets []*models.Target
+	var targets []*model.Target
 
 	result := db.Find(&targets)
 	if result.Error != nil {
@@ -93,7 +93,7 @@ func (s *TargetService) loadAllTargetsFromPG() ([]*models.Target, error) {
 }
 
 // loadAllTargetsFromRedis loads all targets from Redis
-func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*models.Target, error) {
+func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string]*model.Target, error) {
 	client := redis_client.GetClient()
 	var cursor uint64
 	var keys []string
@@ -113,7 +113,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 	}
 
 	if len(keys) == 0 {
-		return make(map[string]*models.Target), nil
+		return make(map[string]*model.Target), nil
 	}
 
 	// Retrieve all targets in a single operation
@@ -122,7 +122,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 		return nil, err
 	}
 
-	targets := make(map[string]*models.Target)
+	targets := make(map[string]*model.Target)
 	for _, data := range jsonData {
 		if data == nil {
 			continue
@@ -133,7 +133,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 			continue
 		}
 
-		target := &models.Target{}
+		target := &model.Target{}
 		if err := json.Unmarshal([]byte(jsonStr), target); err != nil {
 			continue
 		}
@@ -145,7 +145,7 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 }
 
 // mergeTargetsIntoMemory merges targets from PostgreSQL and Redis into memory storage
-func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.Target, redisTargets map[string]*models.Target) int {
+func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*model.Target, redisTargets map[string]*model.Target) int {
 	// First load all PostgreSQL targets into memory
 	for _, pgTarget := range pgTargets {
 		s.storage.Set(pgTarget.ID, pgTarget)
@@ -171,8 +171,8 @@ func (s *TargetService) ProcessTargetMovements() {
 
 	// For each target, calculate new position
 	processedCount := 0
-	s.storage.ForEach(func(id string, target *models.Target) bool {
-		if target.State == models.TargetStateWalking {
+	s.storage.ForEach(func(id string, target *model.Target) bool {
+		if target.State == model.TargetStateWalking {
 			// Calculate new position based on route and speed
 			// This would be your movement logic
 			s.updateTargetPosition(target)
@@ -186,7 +186,7 @@ func (s *TargetService) ProcessTargetMovements() {
 }
 
 // updateTargetPosition updates a target's position based on its speed and route
-func (s *TargetService) updateTargetPosition(target *models.Target) {
+func (s *TargetService) updateTargetPosition(target *model.Target) {
 	// Example movement logic
 	// In a real implementation, you'd decode the route, calculate the next position, etc.
 

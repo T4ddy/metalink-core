@@ -2,7 +2,7 @@ package worker
 
 import (
 	"log"
-	"metalink/internal/services/target"
+	"metalink/internal/service/target"
 	"time"
 )
 

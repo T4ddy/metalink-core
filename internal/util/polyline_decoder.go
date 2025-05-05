@@ -1,4 +1,4 @@
-package utils
+package util
 
 // DecodePolyline converts an encoded polyline string to a slice of lat/lng coordinates
 // Implementation based on Google's Encoded Polyline Algorithm Format
