@@ -1,6 +1,11 @@
 package config
 
-import "github.com/spf13/viper"
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/viper"
+)
 
 type Config struct {
 	Port     string `mapstructure:"PORT"`
@@ -9,19 +14,32 @@ type Config struct {
 }
 
 func LoadConfig() (c Config, err error) {
-	viper.AddConfigPath("metalink/internal/config/envs")
-	viper.SetConfigName("dev")
-	viper.SetConfigType("env")
-
-	viper.AutomaticEnv()
-
-	err = viper.ReadInConfig()
-
-	if err != nil {
-		return
+	// Get environment type from ENV variable or use development as default
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "development"
 	}
 
-	err = viper.Unmarshal(&c)
+	// Set default values
+	viper.SetDefault("PORT", ":8080")
 
+	// Load environment file
+	viper.SetConfigName(fmt.Sprintf(".env.%s", env))
+	viper.SetConfigType("env")
+	viper.AddConfigPath(".") // Look in the project root directory
+
+	// Environment variables take precedence over config file
+	viper.AutomaticEnv()
+
+	// Try to read config file
+	if err := viper.ReadInConfig(); err != nil {
+		// Continue even if file is not found
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return c, err
+		}
+	}
+
+	// Map the values to the Config struct
+	err = viper.Unmarshal(&c)
 	return
 }

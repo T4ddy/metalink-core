@@ -8,7 +8,6 @@ import (
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
 	"metalink/internal/service/target"
-	"metalink/internal/worker"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -43,7 +42,7 @@ func loadConfiguration() (config.Config, error) {
 
 		// Using environment file as fallback
 		cfg.Port = getEnvWithDefault("PORT", ":3000")
-		cfg.DBUrl = getEnvWithDefault("DB_URL", "postgres://postgres:postgres@localhost:5432/postgres")
+		cfg.DBUrl = getEnvWithDefault("DB_URL", "postgres://postgres:postgres@localhost:5432/metalink")
 		cfg.RedisUrl = getEnvWithDefault("REDIS_URL", "redis://localhost:6379/0")
 	}
 
@@ -82,10 +81,14 @@ func initializeServices() *target.TargetService {
 
 func startWorkers(targetService *target.TargetService) {
 	// Start background workers managed by worker package
-	worker.StartAllWorkers()
+	// worker.StartAllWorkers()
 
 	// Start persistence workers (should be moved to worker package)
-	targetService.StartPersistenceWorkers()
+	// targetService.StartPersistenceWorkers()
+
+	// TODO: Seed test targets
+	// targetService.DeleteAllTargets()
+	// targetService.SeedTestTargetsPGParallel(100000)
 }
 
 func runAPIServer(cfg config.Config) {

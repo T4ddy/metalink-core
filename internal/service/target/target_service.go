@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
 	redis_client "metalink/internal/redis"
 	"metalink/internal/service/storage"
+	"metalink/internal/util"
 
 	"gorm.io/gorm"
 )
@@ -190,6 +192,13 @@ func (s *TargetService) updateTargetPosition(target *model.Target) {
 	// Example movement logic
 	// In a real implementation, you'd decode the route, calculate the next position, etc.
 
+	// if target.RoutePoints == nil {
+	// 	target.RoutePoints = util.DecodePolyline(target.Route)
+	// }
+
+	// timeFromLastUpdate := time.Since(target.UpdatedAt)
+	// traveledDistance := target.Speed * float32(timeFromLastUpdate.Seconds())
+
 	// Mark the target as updated
 	target.UpdatedAt = time.Now()
 	s.storage.Set(target.ID, target)
@@ -291,5 +300,144 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 			len(batch), end, len(allTargets))
 	}
 
+	return nil
+}
+
+// TEST FUNCTIONS
+// TEST FUNCTIONS
+// TEST FUNCTIONS
+
+// DeleteAllTargets removes all targets from Redis storage
+func (s *TargetService) DeleteAllTargets() error {
+	client := redis_client.GetClient()
+	ctx := context.Background()
+
+	// Use Scan instead of Keys to improve performance with large datasets
+	var cursor uint64
+	var keys []string
+	pattern := fmt.Sprintf("%s:*", TargetRedisKey)
+
+	for {
+		var batch []string
+		var err error
+		batch, cursor, err = client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return err
+		}
+		keys = append(keys, batch...)
+		if cursor == 0 {
+			break
+		}
+	}
+
+	// If no targets exist, return early
+	if len(keys) == 0 {
+		return nil
+	}
+
+	// Delete all target keys
+	err := client.Del(ctx, keys...).Err()
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Deleted %d targets", len(keys))
+	return nil
+}
+
+func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
+	db := pg.GetDB()
+
+	// Определяем количество воркеров
+	numWorkers := 8
+	batchSize := 500
+
+	// Рассчитываем количество целей на каждого воркера
+	targetsPerWorker := count / numWorkers
+
+	// Создаем wait group для ожидания завершения всех горутин
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+
+	// Создаем канал для сбора ошибок
+	errChan := make(chan error, numWorkers)
+
+	// Создаем атомарный счетчик для отслеживания прогресса
+	var created int64
+
+	// Запускаем горутины-воркеры
+	for w := 0; w < numWorkers; w++ {
+		// Рассчитываем начало и конец для этого воркера
+		start := w * targetsPerWorker
+		end := start + targetsPerWorker
+		if w == numWorkers-1 {
+			end = count // Последний воркер берет остаток
+		}
+
+		go func(workerID, start, end int) {
+			defer wg.Done()
+
+			// Обрабатываем батчи в диапазоне этого воркера
+			for i := start; i < end; i += batchSize {
+				// Рассчитываем текущий размер батча
+				currentBatchSize := batchSize
+				if i+batchSize > end {
+					currentBatchSize = end - i
+				}
+
+				var targets []model.Target
+				for j := 0; j < currentBatchSize; j++ {
+					id, err := util.GenerateUniqueID(6)
+					if err != nil {
+						errChan <- err
+						return
+					}
+
+					target := model.Target{
+						ID:             id,
+						Name:           "Target " + id,
+						Speed:          10,
+						TargetLat:      0,
+						TargetLng:      0,
+						Route:          "eyiaHbyokV@AAsPl@@@mG|@?B_BDQN@HCDGBMB_CzB@BsC@gJAE@sC?cNAY@q@@G?uBAgA?yI@a@EM?k@}D@cCDMGEKKeAIk@Me@EYSgA_@kCoBqMyAeKGk@Ai@EMIGAIEAG_@BaBO?y@IEECG@WqHGFiK}m@YmDEo[U?hA",
+						State:          model.TargetState(model.TargetStateWalking),
+						NextPointIndex: -1,
+					}
+
+					targets = append(targets, target)
+				}
+
+				// Используем транзакцию для пакетной вставки
+				err := db.Transaction(func(tx *gorm.DB) error {
+					result := tx.CreateInBatches(targets, currentBatchSize)
+					return result.Error
+				})
+
+				if err != nil {
+					errChan <- err
+					return
+				}
+
+				// Увеличиваем атомарный счетчик для отслеживания прогресса
+				newCount := atomic.AddInt64(&created, int64(currentBatchSize))
+				if newCount%10000 == 0 || newCount == int64(count) {
+					log.Printf("Seeded %d targets of %d in PostgreSQL", newCount, count)
+				}
+			}
+		}(w, start, end)
+	}
+
+	// Ждем завершения всех воркеров
+	wg.Wait()
+	close(errChan)
+
+	// Проверяем наличие ошибок
+	for err := range errChan {
+		if err != nil {
+			return err
+		}
+	}
+
+	log.Printf("Successfully seeded %d targets in PostgreSQL", count)
 	return nil
 }
