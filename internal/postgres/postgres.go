@@ -20,7 +20,7 @@ func Init(url string) *gorm.DB {
 	}
 
 	// AutoMigrate models
-	err = db.AutoMigrate(&model.Target{})
+	err = db.AutoMigrate(&model.TargetPG{})
 	if err != nil {
 		log.Fatalln("Failed to migrate Target model:", err)
 	}

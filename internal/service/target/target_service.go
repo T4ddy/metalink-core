@@ -84,11 +84,17 @@ func (s *TargetService) InitService(ctx context.Context) error {
 // loadAllTargetsFromPG loads all targets from PostgreSQL
 func (s *TargetService) loadAllTargetsFromPG() ([]*model.Target, error) {
 	db := pg.GetDB()
-	var targets []*model.Target
+	var pgTargets []*model.TargetPG
 
-	result := db.Find(&targets)
+	result := db.Find(&pgTargets)
 	if result.Error != nil {
 		return nil, result.Error
+	}
+
+	// Convert PG models to in-memory models
+	targets := make([]*model.Target, len(pgTargets))
+	for i, pgTarget := range pgTargets {
+		targets[i] = model.FromPG(pgTarget)
 	}
 
 	return targets, nil
@@ -135,12 +141,13 @@ func (s *TargetService) loadAllTargetsFromRedis(ctx context.Context) (map[string
 			continue
 		}
 
-		target := &model.Target{}
-		if err := json.Unmarshal([]byte(jsonStr), target); err != nil {
+		redisTarget := &model.TargetRedis{}
+		if err := json.Unmarshal([]byte(jsonStr), redisTarget); err != nil {
 			continue
 		}
 
-		targets[target.ID] = target
+		// Convert Redis model to in-memory model
+		targets[redisTarget.ID] = model.FromRedis(redisTarget)
 	}
 
 	return targets, nil
@@ -159,6 +166,16 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*model.Target, redisT
 		// Check if we should update based on timestamp
 		existingTarget, exists := s.storage.Get(id)
 		if !exists || redisTarget.UpdatedAt.After(existingTarget.UpdatedAt) {
+			// If exists, we need to merge fields that are not present in Redis model
+			if exists {
+				// Preserve fields that are not stored in Redis
+				// TODO: FIX THIS MERGE
+				redisTarget.Name = existingTarget.Name
+				redisTarget.Route = existingTarget.Route
+				redisTarget.CreatedAt = existingTarget.CreatedAt
+				redisTarget.DeletedAt = existingTarget.DeletedAt
+				redisTarget.RoutePoints = existingTarget.RoutePoints
+			}
 			s.storage.Set(id, redisTarget)
 			mergedCount++
 		}
@@ -207,7 +224,7 @@ func (s *TargetService) updateTargetPosition(target *model.Target) {
 // StartPersistenceWorkers starts workers for persisting data to Redis and PostgreSQL
 func (s *TargetService) StartPersistenceWorkers() {
 	// Redis persistence (every minute)
-	redisTimer := time.NewTicker(3 * time.Second)
+	redisTimer := time.NewTicker(5 * time.Second)
 	go func() {
 		for range redisTimer.C {
 			if err := s.SaveDirtyTargetsToRedis(); err != nil {
@@ -243,7 +260,7 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 
 	for id, target := range dirtyTargets {
 		targetKey := fmt.Sprintf("%s:%s", TargetRedisKey, id)
-		targetJSON, err := json.Marshal(target)
+		targetJSON, err := json.Marshal(target.ToRedis())
 		if err != nil {
 			return err
 		}
@@ -284,7 +301,7 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 
 		err := db.Transaction(func(tx *gorm.DB) error {
 			for _, target := range batch {
-				result := tx.Save(target)
+				result := tx.Save(target.ToPG())
 				if result.Error != nil {
 					return result.Error
 				}
@@ -308,7 +325,7 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 // TEST FUNCTIONS
 
 // DeleteAllTargets removes all targets from Redis storage
-func (s *TargetService) DeleteAllTargets() error {
+func (s *TargetService) DeleteAllRedisTargets() error {
 	client := redis_client.GetClient()
 	ctx := context.Background()
 
@@ -348,44 +365,44 @@ func (s *TargetService) DeleteAllTargets() error {
 func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 	db := pg.GetDB()
 
-	// Определяем количество воркеров
+	// Define number of workers
 	numWorkers := 8
 	batchSize := 500
 
-	// Рассчитываем количество целей на каждого воркера
+	// Calculate targets per worker
 	targetsPerWorker := count / numWorkers
 
-	// Создаем wait group для ожидания завершения всех горутин
+	// Create wait group for waiting for all goroutines to complete
 	var wg sync.WaitGroup
 	wg.Add(numWorkers)
 
-	// Создаем канал для сбора ошибок
+	// Create channel for collecting errors
 	errChan := make(chan error, numWorkers)
 
-	// Создаем атомарный счетчик для отслеживания прогресса
+	// Create atomic counter for tracking progress
 	var created int64
 
-	// Запускаем горутины-воркеры
+	// Launch worker goroutines
 	for w := 0; w < numWorkers; w++ {
-		// Рассчитываем начало и конец для этого воркера
+		// Calculate start and end for this worker
 		start := w * targetsPerWorker
 		end := start + targetsPerWorker
 		if w == numWorkers-1 {
-			end = count // Последний воркер берет остаток
+			end = count // Last worker takes remainder
 		}
 
 		go func(workerID, start, end int) {
 			defer wg.Done()
 
-			// Обрабатываем батчи в диапазоне этого воркера
+			// Process batches in this worker's range
 			for i := start; i < end; i += batchSize {
-				// Рассчитываем текущий размер батча
+				// Calculate current batch size
 				currentBatchSize := batchSize
 				if i+batchSize > end {
 					currentBatchSize = end - i
 				}
 
-				var targets []model.Target
+				var targets []model.TargetPG
 				for j := 0; j < currentBatchSize; j++ {
 					id, err := util.GenerateUniqueID(6)
 					if err != nil {
@@ -393,7 +410,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 						return
 					}
 
-					target := model.Target{
+					target := model.TargetPG{
 						ID:             id,
 						Name:           "Target " + id,
 						Speed:          10,
@@ -407,7 +424,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 					targets = append(targets, target)
 				}
 
-				// Используем транзакцию для пакетной вставки
+				// Use transaction for batch insertion
 				err := db.Transaction(func(tx *gorm.DB) error {
 					result := tx.CreateInBatches(targets, currentBatchSize)
 					return result.Error
@@ -418,7 +435,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 					return
 				}
 
-				// Увеличиваем атомарный счетчик для отслеживания прогресса
+				// Increment atomic counter for progress tracking
 				newCount := atomic.AddInt64(&created, int64(currentBatchSize))
 				if newCount%10000 == 0 || newCount == int64(count) {
 					log.Printf("Seeded %d targets of %d in PostgreSQL", newCount, count)
@@ -427,11 +444,11 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 		}(w, start, end)
 	}
 
-	// Ждем завершения всех воркеров
+	// Wait for all workers to complete
 	wg.Wait()
 	close(errChan)
 
-	// Проверяем наличие ошибок
+	// Check for errors
 	for err := range errChan {
 		if err != nil {
 			return err

@@ -8,6 +8,7 @@ import (
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
 	"metalink/internal/service/target"
+	"metalink/internal/worker"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -26,8 +27,14 @@ func main() {
 	// Initialize and start services
 	targetService := initializeServices()
 
-	// Start workers
-	startWorkers(targetService)
+	if false {
+		// if true {
+		// Start workers
+		startWorkers(targetService)
+	} else {
+		// Lets test some stuff
+		playground(targetService)
+	}
 
 	// Setup and run API server
 	runAPIServer(cfg)
@@ -81,14 +88,10 @@ func initializeServices() *target.TargetService {
 
 func startWorkers(targetService *target.TargetService) {
 	// Start background workers managed by worker package
-	// worker.StartAllWorkers()
+	worker.StartAllWorkers()
 
 	// Start persistence workers (should be moved to worker package)
-	// targetService.StartPersistenceWorkers()
-
-	// TODO: Seed test targets
-	// targetService.DeleteAllTargets()
-	// targetService.SeedTestTargetsPGParallel(100000)
+	targetService.StartPersistenceWorkers()
 }
 
 func runAPIServer(cfg config.Config) {
@@ -105,4 +108,16 @@ func runAPIServer(cfg config.Config) {
 
 	// Start the server
 	r.Run(cfg.Port)
+}
+
+func playground(targetService *target.TargetService) {
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	log.Println("PLAYGROUND")
+	targetService.DeleteAllRedisTargets()
+	targetService.SeedTestTargetsPGParallel(100000)
 }
