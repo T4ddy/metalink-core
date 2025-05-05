@@ -165,16 +165,6 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*models.Target, redis
 	return mergedCount
 }
 
-// StartMovementProcessing starts the periodic movement processing of targets
-func (s *TargetService) StartMovementProcessing() {
-	ticker := time.NewTicker(10 * time.Second) // Process every 10 seconds
-	go func() {
-		for range ticker.C {
-			s.ProcessTargetMovements()
-		}
-	}()
-}
-
 // ProcessTargetMovements updates target positions based on their routes and speeds
 func (s *TargetService) ProcessTargetMovements() {
 	startTime := time.Now()

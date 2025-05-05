@@ -48,7 +48,9 @@ func main() {
 	}
 
 	// Start background workers
-	targetService.StartMovementProcessing()
+	worker.StartAllWorkers()
+
+	// TODO: move it
 	targetService.StartPersistenceWorkers()
 
 	// Initialize application routes
@@ -58,9 +60,6 @@ func main() {
 	// 	"redisUrl": redisUrl,
 	// }
 	// api.SetupRouter(r, config)
-
-	// Workers
-	go worker.StartMovementWorker()
 
 	r.Run(port)
 }
