@@ -27,8 +27,10 @@ func main() {
 	// Initialize and start services
 	targetService := initializeServices()
 
-	if false {
-		// if true {
+	playgroundFlag := false
+	playgroundFlag = true
+
+	if playgroundFlag {
 		// Start workers
 		startWorkers(targetService)
 	} else {

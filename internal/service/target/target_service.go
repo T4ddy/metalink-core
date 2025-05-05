@@ -72,7 +72,7 @@ func (s *TargetService) InitService(ctx context.Context) error {
 	// Step 3: Merge data (Redis updates override PostgreSQL data)
 	log.Println("Merging data from PostgreSQL and Redis...")
 	mergedCount := s.mergeTargetsIntoMemory(pgTargets, redisTargets)
-	log.Printf("Merged %d targets from PostgreSQL and Redis", mergedCount)
+	log.Printf("Merged %d newer targets from Redis", mergedCount)
 
 	log.Printf("Initialization complete: %d targets in memory, took %v",
 		s.storage.Count(), time.Since(startTime))

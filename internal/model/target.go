@@ -30,6 +30,11 @@ type TargetPG struct {
 	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index"`
 }
 
+// TableName overrides the table name used by TargetPG to `targets`
+func (TargetPG) TableName() string {
+	return "targets"
+}
+
 // TargetRedis is the model for Redis storage
 type TargetRedis struct {
 	ID             string      `json:"id"`
