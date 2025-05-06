@@ -36,8 +36,9 @@ var (
 // GetTargetService returns the singleton instance of GetTargetService.
 func GetTargetService() *TargetService {
 	targetServiceOnce.Do(func() {
+		// Use sharded storage for better performance with large datasets
 		targetServiceInstance = &TargetService{
-			storage: storage.NewMemoryStorage[string, *model.Target](),
+			storage: storage.NewShardedMemoryStorage[string, *model.Target](16, nil),
 		}
 	})
 	return targetServiceInstance
@@ -285,7 +286,7 @@ func (s *TargetService) StartPersistenceWorkers() {
 			if err := s.SaveDirtyTargetsToRedis(); err != nil {
 				log.Printf("Error saving to Redis: %v", err)
 			}
-			log.Printf("Time taken to save dirty targets to Redis: %v", time.Since(startTime))
+			log.Printf("Time taken to save dirty targets to REDIS << %v", time.Since(startTime))
 		}
 	}()
 
@@ -297,7 +298,7 @@ func (s *TargetService) StartPersistenceWorkers() {
 			if err := s.SaveAllTargetsToPGv2(); err != nil {
 				log.Printf("Error saving to PostgreSQL: %v", err)
 			}
-			log.Printf("Time taken to save all targets to PostgreSQL: %v", time.Since(startTime))
+			log.Printf("Time taken to save all targets to POSTGRESQL << %v", time.Since(startTime))
 		}
 	}()
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"log"
 	"metalink/internal/api"
 	"metalink/internal/config"
@@ -9,22 +10,22 @@ import (
 	"metalink/internal/redis"
 	"metalink/internal/service/target"
 	"metalink/internal/worker"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
 )
 
 func main() {
-	// Load configuration
+	setupLogging()
+
 	cfg, err := loadConfiguration()
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	// Initialize database and cache
 	initializeDatabaseAndCache(cfg)
 
-	// Initialize and start services
 	targetService := initializeServices()
 
 	playgroundFlag := false
@@ -32,15 +33,27 @@ func main() {
 
 	// if false {
 	if playgroundFlag {
-		// Lets test some stuff
 		playground(targetService)
 	} else {
-		// Start workers
 		startWorkers(targetService)
 	}
 
-	// Setup and run API server
 	runAPIServer(cfg)
+}
+
+func setupLogging() {
+	// Set up logging to file and terminal
+	logFile, err := os.OpenFile("metalink.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err != nil {
+		log.Fatalf("Failed to open log file: %v", err)
+	}
+	// Note: We're not closing the file here since it needs to stay open
+	// for the entire application lifetime. This is a minor resource leak
+	// but acceptable for this use case.
+
+	// Use MultiWriter to output logs to both terminal and file
+	multiWriter := io.MultiWriter(os.Stdout, logFile)
+	log.SetOutput(multiWriter)
 }
 
 func loadConfiguration() (config.Config, error) {
@@ -122,5 +135,5 @@ func playground(targetService *target.TargetService) {
 	log.Println("PLAYGROUND")
 	log.Println("PLAYGROUND")
 	targetService.DeleteAllRedisTargets()
-	targetService.SeedTestTargetsPGParallel(100000)
+	targetService.SeedTestTargetsPGParallel(500000)
 }
