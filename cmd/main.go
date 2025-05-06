@@ -11,6 +11,10 @@ import (
 	"metalink/internal/service/target"
 	"metalink/internal/worker"
 	"os"
+	"os/signal"
+	"runtime"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -25,6 +29,17 @@ func main() {
 	}
 
 	initializeDatabaseAndCache(cfg)
+	defer closeConnections()
+
+	// Настройка перехвата сигнала завершения
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Println("Shutdown signal received, closing connections...")
+		closeConnections()
+		os.Exit(0)
+	}()
 
 	targetService := initializeServices()
 
@@ -37,6 +52,8 @@ func main() {
 	} else {
 		startWorkers(targetService)
 	}
+
+	reportMemoryStats()
 
 	runAPIServer(cfg)
 }
@@ -135,5 +152,29 @@ func playground(targetService *target.TargetService) {
 	log.Println("PLAYGROUND")
 	log.Println("PLAYGROUND")
 	targetService.DeleteAllRedisTargets()
-	targetService.SeedTestTargetsPGParallel(1000000)
+	targetService.SeedTestTargetsPGParallel(500000)
+}
+
+func reportMemoryStats() {
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		for range ticker.C {
+			var m runtime.MemStats
+			runtime.ReadMemStats(&m)
+			log.Printf("Alloc = %v MiB, TotalAlloc = %v MiB, Sys = %v MiB, NumGC = %v",
+				m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024, m.NumGC)
+		}
+	}()
+}
+
+func closeConnections() {
+	if err := postgres.Close(); err != nil {
+		log.Printf("Error closing PostgreSQL connection: %v", err)
+	}
+
+	if err := redis.Close(); err != nil {
+		log.Printf("Error closing Redis connection: %v", err)
+	}
+
+	log.Println("PostgreSQL and Redis connections closed successfully")
 }
