@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -194,7 +195,6 @@ func (s *TargetService) ProcessTargetMovements() {
 	s.storage.ForEach(func(id string, target *model.Target) bool {
 		if target.State == model.TargetStateWalking {
 			// Calculate new position based on route and speed
-			// This would be your movement logic
 			s.updateTargetPosition(target)
 			processedCount++
 		}
@@ -293,9 +293,11 @@ func (s *TargetService) StartPersistenceWorkers() {
 	pgTimer := time.NewTicker(config.PostgresBackupInterval)
 	go func() {
 		for range pgTimer.C {
-			if err := s.SaveAllTargetsToPG(); err != nil {
+			startTime := time.Now() // Start timing
+			if err := s.SaveAllTargetsToPGv2(); err != nil {
 				log.Printf("Error saving to PostgreSQL: %v", err)
 			}
+			log.Printf("Time taken to save all targets to PostgreSQL: %v", time.Since(startTime))
 		}
 	}()
 }
@@ -336,15 +338,15 @@ func (s *TargetService) SaveDirtyTargetsToRedis() error {
 	return nil
 }
 
-// SaveAllTargetsToPG saves all targets to PostgreSQL in batches
-func (s *TargetService) SaveAllTargetsToPG() error {
+// SaveAllTargetsToPGv3 saves all targets to PostgreSQL using bulk upsert SQL
+func (s *TargetService) SaveAllTargetsToPGv2() error {
 	allTargets := s.storage.GetAllValues()
 	if len(allTargets) == 0 {
 		return nil
 	}
 
 	db := pg.GetDB()
-	batchSize := 1000
+	batchSize := 2000
 
 	// Process in batches to avoid overwhelming the database
 	for i := 0; i < len(allTargets); i += batchSize {
@@ -356,21 +358,53 @@ func (s *TargetService) SaveAllTargetsToPG() error {
 		batch := allTargets[i:end]
 
 		err := db.Transaction(func(tx *gorm.DB) error {
-			for _, target := range batch {
-				result := tx.Save(target.ToPG())
-				if result.Error != nil {
-					return result.Error
-				}
+			// Prepare for bulk upsert
+			sql := `INSERT INTO targets (id, name, speed, state, current_lat, current_lng, 
+                   target_lat, target_lng, next_point_index, route, created_at, updated_at)
+                   VALUES `
+
+			values := []interface{}{}
+			placeholders := []string{}
+
+			for i, target := range batch {
+				pgTarget := target.ToPG()
+				offset := i * 12
+
+				placeholders = append(placeholders,
+					fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+						offset+1, offset+2, offset+3, offset+4, offset+5, offset+6,
+						offset+7, offset+8, offset+9, offset+10, offset+11, offset+12))
+
+				values = append(values,
+					pgTarget.ID, pgTarget.Name, pgTarget.Speed, pgTarget.State,
+					pgTarget.CurrentLat, pgTarget.CurrentLng, pgTarget.TargetLat, pgTarget.TargetLng,
+					pgTarget.NextPointIndex, pgTarget.Route, pgTarget.CreatedAt, pgTarget.UpdatedAt)
 			}
-			return nil
+
+			sql += strings.Join(placeholders, ",")
+			sql += ` ON CONFLICT (id) DO UPDATE SET 
+                  name = EXCLUDED.name,
+                  speed = EXCLUDED.speed,
+                  state = EXCLUDED.state,
+                  current_lat = EXCLUDED.current_lat,
+                  current_lng = EXCLUDED.current_lng,
+                  target_lat = EXCLUDED.target_lat,
+                  target_lng = EXCLUDED.target_lng,
+                  next_point_index = EXCLUDED.next_point_index,
+                  route = EXCLUDED.route,
+                  updated_at = EXCLUDED.updated_at`
+
+			return tx.Exec(sql, values...).Error
 		})
 
 		if err != nil {
 			return err
 		}
 
-		log.Printf("Saved batch of %d targets to PostgreSQL (%d/%d)",
-			len(batch), end, len(allTargets))
+		if end%10000 == 0 {
+			log.Printf("Saved batch of %d targets to PostgreSQL (%d/%d)",
+				len(batch), end, len(allTargets))
+		}
 	}
 
 	return nil
@@ -469,7 +503,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 					target := model.TargetPG{
 						ID:             id,
 						Name:           "Target " + id,
-						Speed:          10,
+						Speed:          config.DefaultTargetSpeed,
 						TargetLat:      0,
 						TargetLng:      0,
 						Route:          "eyiaHbyokV@AAsPl@@@mG|@?B_BDQN@HCDGBMB_CzB@BsC@gJAE@sC?cNAY@q@@G?uBAgA?yI@a@EM?k@}D@cCDMGEKKeAIk@Me@EYSgA_@kCoBqMyAeKGk@Ai@EMIGAIEAG_@BaBO?y@IEECG@WqHGFiK}m@YmDEo[U?hA",

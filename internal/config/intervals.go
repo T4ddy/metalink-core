@@ -8,8 +8,8 @@ const (
 	MovementWorkerInterval = 3 * time.Second
 
 	// RedisBackupInterval defines how often to save changes to Redis
-	RedisBackupInterval = 10 * time.Second
+	RedisBackupInterval = 999 * time.Second
 
 	// PostgresBackupInterval defines how often to save changes to PostgreSQL
-	PostgresBackupInterval = 20 * time.Second
+	PostgresBackupInterval = 5 * time.Second
 )
