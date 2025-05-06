@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"metalink/internal/config"
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
 	redis_client "metalink/internal/redis"
@@ -206,15 +207,68 @@ func (s *TargetService) ProcessTargetMovements() {
 
 // updateTargetPosition updates a target's position based on its speed and route
 func (s *TargetService) updateTargetPosition(target *model.Target) {
-	// Example movement logic
-	// In a real implementation, you'd decode the route, calculate the next position, etc.
+	// Decode route points if not already decoded
+	if target.RoutePoints == nil {
+		target.RoutePoints = util.DecodePolyline(target.Route)
+	}
 
-	// if target.RoutePoints == nil {
-	// 	target.RoutePoints = util.DecodePolyline(target.Route)
-	// }
+	remainingDistance := float64(target.Speed * float32(config.MovementWorkerInterval.Seconds()))
 
-	// timeFromLastUpdate := time.Since(target.UpdatedAt)
-	// traveledDistance := target.Speed * float32(timeFromLastUpdate.Seconds())
+	// Initialize target position if not set
+	if target.NextPointIndex <= 0 {
+		if len(target.RoutePoints) > 0 {
+			target.CurrentLat = float32(target.RoutePoints[0][0])
+			target.CurrentLng = float32(target.RoutePoints[0][1])
+			target.NextPointIndex = 1
+		} else {
+			// No route points, can't move
+			target.UpdatedAt = time.Now()
+			s.storage.Set(target.ID, target)
+			return
+		}
+	}
+
+	// Move target along route
+	for remainingDistance > 0 && target.NextPointIndex < len(target.RoutePoints) {
+		// Get next point coordinates
+		nextPointLat := target.RoutePoints[target.NextPointIndex][0]
+		nextPointLng := target.RoutePoints[target.NextPointIndex][1]
+
+		// Calculate distance to next point
+		distance := util.HaversineDistance(
+			float64(target.CurrentLat),
+			float64(target.CurrentLng),
+			nextPointLat,
+			nextPointLng,
+		)
+
+		if remainingDistance >= distance {
+			// We can reach (or pass) the next point
+			target.CurrentLat = float32(nextPointLat)
+			target.CurrentLng = float32(nextPointLng)
+			remainingDistance -= distance
+			target.NextPointIndex++
+
+			// Check if we reached the end of the route
+			if target.NextPointIndex >= len(target.RoutePoints) {
+				target.State = model.TargetStateStopped
+				break
+			}
+		} else {
+			// Move partially toward the next point
+			newPosition := util.MoveToward(
+				float64(target.CurrentLat),
+				float64(target.CurrentLng),
+				nextPointLat,
+				nextPointLng,
+				remainingDistance,
+			)
+
+			target.CurrentLat = float32(newPosition[0])
+			target.CurrentLng = float32(newPosition[1])
+			remainingDistance = 0
+		}
+	}
 
 	// Mark the target as updated
 	target.UpdatedAt = time.Now()
@@ -224,17 +278,19 @@ func (s *TargetService) updateTargetPosition(target *model.Target) {
 // StartPersistenceWorkers starts workers for persisting data to Redis and PostgreSQL
 func (s *TargetService) StartPersistenceWorkers() {
 	// Redis persistence (every minute)
-	redisTimer := time.NewTicker(5 * time.Second)
+	redisTimer := time.NewTicker(config.RedisBackupInterval)
 	go func() {
 		for range redisTimer.C {
+			startTime := time.Now()
 			if err := s.SaveDirtyTargetsToRedis(); err != nil {
 				log.Printf("Error saving to Redis: %v", err)
 			}
+			log.Printf("Time taken to save dirty targets to Redis: %v", time.Since(startTime))
 		}
 	}()
 
 	// PostgreSQL persistence (every hour)
-	pgTimer := time.NewTicker(20 * time.Second)
+	pgTimer := time.NewTicker(config.PostgresBackupInterval)
 	go func() {
 		for range pgTimer.C {
 			if err := s.SaveAllTargetsToPG(); err != nil {

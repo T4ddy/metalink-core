@@ -24,6 +24,8 @@ type TargetPG struct {
 	Route          string      `gorm:"type:text"`
 	State          TargetState `gorm:"not null"`
 	NextPointIndex int         `gorm:""`
+	CurrentLat     float32     `gorm:""`
+	CurrentLng     float32     `gorm:""`
 
 	UpdatedAt time.Time      `gorm:"column:updated_at"`
 	CreatedAt time.Time      `gorm:"column:created_at"`
@@ -43,6 +45,8 @@ type TargetRedis struct {
 	TargetLng      float32     `json:"target_lng"`
 	State          TargetState `json:"state"`
 	NextPointIndex int         `json:"next_point_index"`
+	CurrentLat     float32     `json:"current_lat"`
+	CurrentLng     float32     `json:"current_lng"`
 	UpdatedAt      time.Time   `json:"updated_at"`
 }
 
@@ -56,6 +60,8 @@ type Target struct {
 	Route          string
 	State          TargetState
 	NextPointIndex int
+	CurrentLat     float32
+	CurrentLng     float32
 
 	UpdatedAt time.Time
 	CreatedAt time.Time
@@ -73,6 +79,8 @@ func (t *Target) ToRedis() *TargetRedis {
 		TargetLng:      t.TargetLng,
 		State:          t.State,
 		NextPointIndex: t.NextPointIndex,
+		CurrentLat:     t.CurrentLat,
+		CurrentLng:     t.CurrentLng,
 		UpdatedAt:      t.UpdatedAt,
 	}
 }
@@ -88,6 +96,8 @@ func (t *Target) ToPG() *TargetPG {
 		Route:          t.Route,
 		State:          t.State,
 		NextPointIndex: t.NextPointIndex,
+		CurrentLat:     t.CurrentLat,
+		CurrentLng:     t.CurrentLng,
 		UpdatedAt:      t.UpdatedAt,
 		CreatedAt:      t.CreatedAt,
 		DeletedAt:      t.DeletedAt,
@@ -105,6 +115,8 @@ func FromPG(pg *TargetPG) *Target {
 		Route:          pg.Route,
 		State:          pg.State,
 		NextPointIndex: pg.NextPointIndex,
+		CurrentLat:     pg.CurrentLat,
+		CurrentLng:     pg.CurrentLng,
 		UpdatedAt:      pg.UpdatedAt,
 		CreatedAt:      pg.CreatedAt,
 		DeletedAt:      pg.DeletedAt,
@@ -120,6 +132,8 @@ func FromRedis(r *TargetRedis) *Target {
 		TargetLng:      r.TargetLng,
 		State:          r.State,
 		NextPointIndex: r.NextPointIndex,
+		CurrentLat:     r.CurrentLat,
+		CurrentLng:     r.CurrentLng,
 		UpdatedAt:      r.UpdatedAt,
 	}
 }

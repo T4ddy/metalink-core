@@ -28,14 +28,15 @@ func main() {
 	targetService := initializeServices()
 
 	playgroundFlag := false
-	playgroundFlag = true
+	// playgroundFlag = true
 
+	// if false {
 	if playgroundFlag {
-		// Start workers
-		startWorkers(targetService)
-	} else {
 		// Lets test some stuff
 		playground(targetService)
+	} else {
+		// Start workers
+		startWorkers(targetService)
 	}
 
 	// Setup and run API server
