@@ -11,5 +11,5 @@ const (
 	RedisBackupInterval = 10 * time.Second
 
 	// PostgresBackupInterval defines how often to save changes to PostgreSQL
-	PostgresBackupInterval = 30 * time.Second
+	PostgresBackupInterval = 60 * time.Second
 )
