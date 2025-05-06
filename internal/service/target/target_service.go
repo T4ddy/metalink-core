@@ -306,6 +306,7 @@ func (s *TargetService) StartPersistenceWorkers() {
 // SaveDirtyTargetsToRedis saves modified targets to Redis
 func (s *TargetService) SaveDirtyTargetsToRedis() error {
 	dirtyTargets := s.storage.GetDirty()
+
 	if len(dirtyTargets) == 0 {
 		return nil
 	}
@@ -405,6 +406,103 @@ func (s *TargetService) SaveAllTargetsToPGv2() error {
 		if end%10000 == 0 {
 			log.Printf("Saved batch of %d targets to PostgreSQL (%d/%d)",
 				len(batch), end, len(allTargets))
+		}
+	}
+
+	return nil
+}
+
+// TODO: check if switch dirty to array is faster
+// TODO: check if switch dirty to array is faster
+// TODO: check if switch dirty to array is faster
+// TODO: check if switch dirty to array is faster
+// TODO: check if switch dirty to array is faster
+
+// TODO: switch to parallel processing
+// TODO: switch to parallel processing
+// TODO: switch to parallel processing
+// TODO: switch to parallel processing
+// TODO: switch to parallel processing
+
+// 300ms !
+// SaveAllTargetsToRedisV4 saves targets to Redis using parallel processing
+func (s *TargetService) SaveAllTargetsToRedisV4() error {
+	allTargets := s.storage.GetAllValues()
+
+	if len(allTargets) == 0 {
+		return nil
+	}
+
+	// Define parallel processing parameters
+	numWorkers := 8
+	batchSize := 500
+	targetsPerWorker := len(allTargets) / numWorkers
+
+	// Setup wait group and error channel
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+	errChan := make(chan error, numWorkers)
+
+	// Create atomic counter for tracking progress
+	var saved int64
+
+	// Launch worker goroutines
+	for w := 0; w < numWorkers; w++ {
+		// Calculate start and end for this worker
+		start := w * targetsPerWorker
+		end := start + targetsPerWorker
+		if w == numWorkers-1 {
+			end = len(allTargets) // Last worker takes remainder
+		}
+
+		go func(workerStart, workerEnd int) {
+			defer wg.Done()
+
+			client := redis_client.GetClient()
+			ctx := context.Background()
+
+			// Process in smaller batches
+			for i := workerStart; i < workerEnd; i += batchSize {
+				batchEnd := i + batchSize
+				if batchEnd > workerEnd {
+					batchEnd = workerEnd
+				}
+
+				pipe := client.Pipeline()
+				for j := i; j < batchEnd; j++ {
+					target := allTargets[j]
+					targetKey := fmt.Sprintf("%s:%s", TargetRedisKey, target.ID)
+					targetJSON, err := json.Marshal(target.ToRedis())
+					if err != nil {
+						errChan <- err
+						return
+					}
+					pipe.Set(ctx, targetKey, targetJSON, 0)
+				}
+
+				_, err := pipe.Exec(ctx)
+				if err != nil {
+					errChan <- err
+					return
+				}
+
+				// Update progress
+				newCount := atomic.AddInt64(&saved, int64(batchEnd-i))
+				if newCount%100000 == 0 || newCount == int64(len(allTargets)) {
+					log.Printf("Saved %d/%d targets to Redis", newCount, len(allTargets))
+				}
+			}
+		}(start, end)
+	}
+
+	// Wait for all workers to complete
+	wg.Wait()
+	close(errChan)
+
+	// Check for errors
+	for err := range errChan {
+		if err != nil {
+			return err
 		}
 	}
 

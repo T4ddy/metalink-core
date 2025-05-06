@@ -152,7 +152,7 @@ func playground(targetService *target.TargetService) {
 	log.Println("PLAYGROUND")
 	log.Println("PLAYGROUND")
 	targetService.DeleteAllRedisTargets()
-	targetService.SeedTestTargetsPGParallel(500000)
+	targetService.SeedTestTargetsPGParallel(300000)
 }
 
 func reportMemoryStats() {
