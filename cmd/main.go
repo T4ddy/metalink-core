@@ -31,15 +31,7 @@ func main() {
 	initializeDatabaseAndCache(cfg)
 	defer closeConnections()
 
-	// Настройка перехвата сигнала завершения
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		log.Println("Shutdown signal received, closing connections...")
-		closeConnections()
-		os.Exit(0)
-	}()
+	setupSignalHandler()
 
 	targetService := initializeServices()
 
@@ -177,4 +169,15 @@ func closeConnections() {
 	}
 
 	log.Println("PostgreSQL and Redis connections closed successfully")
+}
+
+func setupSignalHandler() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Println("Shutdown signal received, closing connections...")
+		closeConnections()
+		os.Exit(0)
+	}()
 }
