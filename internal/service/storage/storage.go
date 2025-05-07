@@ -7,7 +7,7 @@ type Storage[K comparable, V any] interface {
 	Delete(key K) bool
 	GetAll() map[K]V
 	GetAllValues() []V
-	GetDirty() map[K]V
+	GetDirty() []V
 	ClearDirty(keys []K)
 	ForEach(fn func(key K, value V) bool)
 	Count() int

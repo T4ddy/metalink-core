@@ -283,7 +283,7 @@ func (s *TargetService) StartPersistenceWorkers() {
 	go func() {
 		for range redisTimer.C {
 			startTime := time.Now()
-			if err := s.SaveDirtyTargetsToRedis(); err != nil {
+			if err := s.SaveAllTargetsToRedisV4(); err != nil {
 				log.Printf("Error saving to Redis: %v", err)
 			}
 			log.Printf("Time taken to save dirty targets to REDIS << %v", time.Since(startTime))
@@ -301,43 +301,6 @@ func (s *TargetService) StartPersistenceWorkers() {
 			log.Printf("Time taken to save all targets to POSTGRESQL << %v", time.Since(startTime))
 		}
 	}()
-}
-
-// SaveDirtyTargetsToRedis saves modified targets to Redis
-func (s *TargetService) SaveDirtyTargetsToRedis() error {
-	dirtyTargets := s.storage.GetDirty()
-
-	if len(dirtyTargets) == 0 {
-		return nil
-	}
-
-	client := redis_client.GetClient()
-	ctx := context.Background()
-	pipe := client.Pipeline()
-
-	// Collect keys to clear flags after successful save
-	keys := make([]string, 0, len(dirtyTargets))
-
-	for id, target := range dirtyTargets {
-		targetKey := fmt.Sprintf("%s:%s", TargetRedisKey, id)
-		targetJSON, err := json.Marshal(target.ToRedis())
-		if err != nil {
-			return err
-		}
-		pipe.Set(ctx, targetKey, targetJSON, 0)
-		keys = append(keys, id)
-	}
-
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	// Clear flags only after successful save
-	s.storage.ClearDirty(keys)
-
-	log.Printf("Saved %d targets to Redis", len(dirtyTargets))
-	return nil
 }
 
 // SaveAllTargetsToPGv3 saves all targets to PostgreSQL using bulk upsert SQL
@@ -412,19 +375,6 @@ func (s *TargetService) SaveAllTargetsToPGv2() error {
 	return nil
 }
 
-// TODO: check if switch dirty to array is faster
-// TODO: check if switch dirty to array is faster
-// TODO: check if switch dirty to array is faster
-// TODO: check if switch dirty to array is faster
-// TODO: check if switch dirty to array is faster
-
-// TODO: switch to parallel processing
-// TODO: switch to parallel processing
-// TODO: switch to parallel processing
-// TODO: switch to parallel processing
-// TODO: switch to parallel processing
-
-// 300ms !
 // SaveAllTargetsToRedisV4 saves targets to Redis using parallel processing
 func (s *TargetService) SaveAllTargetsToRedisV4() error {
 	allTargets := s.storage.GetAllValues()

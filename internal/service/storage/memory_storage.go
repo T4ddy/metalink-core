@@ -81,14 +81,14 @@ func (s *MemoryStorage[K, V]) GetAllValues() []V {
 }
 
 // GetDirty returns all dirty objects without clearing flags
-func (s *MemoryStorage[K, V]) GetDirty() map[K]V {
+func (s *MemoryStorage[K, V]) GetDirty() []V {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	result := make(map[K]V)
+	result := make([]V, 0, len(s.dirty))
 	for k := range s.dirty {
 		if v, exists := s.data[k]; exists {
-			result[k] = v
+			result = append(result, v)
 		}
 	}
 	return result
