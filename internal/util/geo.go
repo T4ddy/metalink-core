@@ -3,7 +3,19 @@ package util
 import (
 	"github.com/golang/geo/s1"
 	"github.com/golang/geo/s2"
+	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/planar"
 )
+
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
+// TODO: check performance of s2 and orb
 
 func MoveToward(startLat, startLng, endLat, endLng, distanceMeters float64) [2]float64 {
 	// Convert degrees to S2 points
@@ -43,4 +55,16 @@ func HaversineDistance(lat1, lng1, lat2, lng2 float64) float64 {
 	distanceMeters := angle.Radians() * earthRadiusMeters
 
 	return distanceMeters
+}
+
+func PointInPolygon(polygon orb.Polygon, point orb.Point) bool {
+	if !planar.RingContains(polygon[0], point) {
+		return false
+	}
+	for _, hole := range polygon[1:] {
+		if planar.RingContains(hole, point) {
+			return false
+		}
+	}
+	return true
 }
