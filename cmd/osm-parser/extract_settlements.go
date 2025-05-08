@@ -11,58 +11,58 @@ import (
 	"github.com/qedus/osmpbf"
 )
 
-// Settlement представляет населенный пункт
+// Settlement represents a settlement
 type Settlement struct {
 	ID         int64
 	Name       string
 	Type       string // city, town, village, hamlet
 	Lat, Lon   float64
 	Population int
-	IsNode     bool // true если это узел, false если полигон (way)
+	IsNode     bool // true if this is a node, false if polygon (way)
 }
 
 func main() {
-	// Проверяем, передан ли аргумент с путем к файлу
+	// Check if the argument with the file path is provided
 	if len(os.Args) < 2 {
 		log.Fatal("Usage: program <path-to-osm.pbf>")
 	}
 
-	// Путь к OSM PBF файлу
+	// Path to the OSM PBF file
 	osmFile := os.Args[1]
 	log.Printf("Processing file: %s", osmFile)
 
-	// Открываем файл
+	// Open the file
 	f, err := os.Open(osmFile)
 	if err != nil {
 		log.Fatalf("Failed to open file: %v", err)
 	}
 	defer f.Close()
 
-	// Создаем декодер
+	// Create a decoder
 	decoder := osmpbf.NewDecoder(f)
 	decoder.SetBufferSize(osmpbf.MaxBlobSize)
 
-	// Используем все доступные CPU для параллельной обработки
+	// Use all available CPUs for parallel processing
 	numProcs := runtime.GOMAXPROCS(-1)
 	decoder.Start(numProcs)
 	log.Printf("Decoder started with %d processors", numProcs)
 
-	// Счетчики для статистики
+	// Counters for statistics
 	nodeCount := 0
 	wayCount := 0
 	totalCount := 0
 
-	// Кэш узлов для формирования полигонов населенных пунктов
+	// Node cache for forming settlement polygons
 	nodeCache := make(map[int64]*osmpbf.Node)
 
-	// Карта для отслеживания населенных пунктов, чтобы избежать дубликатов
+	// Map to track settlements to avoid duplicates
 	settlements := make(map[string]Settlement)
 
-	// Этап 1: Собираем все узлы-населенные пункты и кэшируем другие узлы для полигонов
+	// Phase 1: Collecting all settlement nodes and caching other nodes for polygons
 	log.Println("Phase 1: Collecting settlement nodes and caching coordinates...")
 
 	for {
-		// Декодируем следующий объект
+		// Decode the next object
 		object, err := decoder.Decode()
 		if err == io.EOF {
 			break
@@ -71,21 +71,21 @@ func main() {
 			log.Fatalf("Error decoding: %v", err)
 		}
 
-		// Обрабатываем узел
+		// Process node
 		if node, ok := object.(*osmpbf.Node); ok {
-			// Сохраняем все узлы для использования в полигонах
+			// Save all nodes for use in polygons
 			nodeCache[node.ID] = node
 
-			// Проверяем, является ли узел населенным пунктом
+			// Check if the node is a settlement
 			if placeType, isPlace := node.Tags["place"]; isPlace {
-				// Фильтруем только основные типы населенных пунктов
+				// Filter only main types of settlements
 				if isSettlementType(placeType) {
 					name := node.Tags["name"]
 					if name == "" {
 						name = fmt.Sprintf("Unnamed %s", placeType)
 					}
 
-					// Извлекаем население, если указано
+					// Extract population if specified
 					population := 0
 					if popStr, ok := node.Tags["population"]; ok {
 						if pop, err := strconv.Atoi(popStr); err == nil {
@@ -93,10 +93,10 @@ func main() {
 						}
 					}
 
-					// Создаем ключ для избежания дубликатов
+					// Create a key to avoid duplicates
 					key := fmt.Sprintf("node_%d", node.ID)
 
-					// Сохраняем населенный пункт
+					// Save the settlement
 					settlements[key] = Settlement{
 						ID:         node.ID,
 						Name:       name,
@@ -110,7 +110,7 @@ func main() {
 					nodeCount++
 					totalCount++
 
-					// Выводим базовую информацию о населенном пункте
+					// Output basic information about the settlement
 					log.Printf("[Node] %s: %s (%.6f, %.6f)", placeType, name, node.Lat, node.Lon)
 				}
 			}
@@ -119,17 +119,17 @@ func main() {
 
 	log.Printf("Collected %d settlement nodes", nodeCount)
 
-	// Сбрасываем декодер для второго прохода
+	// Reset the decoder for the second pass
 	f.Seek(0, 0)
 	decoder = osmpbf.NewDecoder(f)
 	decoder.SetBufferSize(osmpbf.MaxBlobSize)
 	decoder.Start(numProcs)
 
-	// Этап 2: Собираем все пути (полигоны), представляющие населенные пункты
+	// Phase 2: Collecting all ways (polygons) representing settlements
 	log.Println("Phase 2: Collecting settlement polygons (ways)...")
 
 	for {
-		// Декодируем следующий объект
+		// Decode the next object
 		object, err := decoder.Decode()
 		if err == io.EOF {
 			break
@@ -138,9 +138,9 @@ func main() {
 			log.Fatalf("Error decoding: %v", err)
 		}
 
-		// Обрабатываем путь
+		// Process way
 		if way, ok := object.(*osmpbf.Way); ok {
-			// Проверяем, является ли путь населенным пунктом
+			// Check if the way is a settlement
 			if placeType, isPlace := way.Tags["place"]; isPlace {
 				if isSettlementType(placeType) {
 					name := way.Tags["name"]
@@ -148,7 +148,7 @@ func main() {
 						name = fmt.Sprintf("Unnamed %s area", placeType)
 					}
 
-					// Извлекаем население, если указано
+					// Extract population if specified
 					population := 0
 					if popStr, ok := way.Tags["population"]; ok {
 						if pop, err := strconv.Atoi(popStr); err == nil {
@@ -156,20 +156,20 @@ func main() {
 						}
 					}
 
-					// Вычисляем центроид полигона, если доступны координаты
+					// Calculate the centroid of the polygon if coordinates are available
 					var lat, lon float64
 					if len(way.NodeIDs) > 0 {
-						// Пытаемся использовать первый узел полигона для получения координат
+						// Try to use the first node of the polygon to get coordinates
 						if firstNode, exists := nodeCache[way.NodeIDs[0]]; exists {
 							lat = firstNode.Lat
 							lon = firstNode.Lon
 						}
 					}
 
-					// Создаем ключ для избежания дубликатов
+					// Create a key to avoid duplicates
 					key := fmt.Sprintf("way_%d", way.ID)
 
-					// Сохраняем населенный пункт
+					// Save the settlement
 					settlements[key] = Settlement{
 						ID:         way.ID,
 						Name:       name,
@@ -183,7 +183,7 @@ func main() {
 					wayCount++
 					totalCount++
 
-					// Выводим информацию о полигональном населенном пункте
+					// Output information about the polygonal settlement
 					log.Printf("[Way] %s: %s", placeType, name)
 				}
 			}
@@ -195,7 +195,7 @@ func main() {
 	log.Println("Processing complete!")
 }
 
-// isSettlementType проверяет, является ли тип одним из основных типов населенных пунктов
+// isSettlementType checks if the type is one of the main types of settlements
 func isSettlementType(placeType string) bool {
 	switch placeType {
 	case "city", "town", "village", "hamlet", "suburb", "neighbourhood", "quarter", "borough":
