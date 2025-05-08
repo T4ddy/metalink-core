@@ -165,7 +165,12 @@ func (s *ZoneService) rebuildSpatialIndex() {
 func (s *ZoneService) parseGeometry(geometryStr string) (*orb.Polygon, *orb.Bound, error) {
 	fc, err := geojson.UnmarshalFeatureCollection([]byte(geometryStr))
 	if err != nil {
-		return nil, nil, err
+		// Attempt to unmarshal as a single Feature if FeatureCollection fails
+		feature, err := geojson.UnmarshalFeature([]byte(geometryStr))
+		if err != nil {
+			return nil, nil, err
+		}
+		fc = &geojson.FeatureCollection{Features: []*geojson.Feature{feature}}
 	}
 
 	if len(fc.Features) == 0 {
@@ -210,10 +215,14 @@ func (s *ZoneService) GetZonesAtPoint(lat, lng float64) []*model.Zone {
 
 	// Create a small search rectangle around the point
 	// This helps with the initial filtering using the R-tree
-	searchRect, _ := rtreego.NewRect(
+	searchRect, err := rtreego.NewRect(
 		rtreego.Point{lng, lat},
 		[]float64{0.0001, 0.0001}, // Small radius for point search
 	)
+	if err != nil {
+		log.Printf("invalid search rect: %v", err)
+		return nil
+	}
 
 	// Find candidate zones using the spatial index
 	// This returns zones whose bounding boxes contain the point
