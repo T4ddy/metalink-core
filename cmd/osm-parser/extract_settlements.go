@@ -10,6 +10,7 @@ import (
 	"metalink/internal/postgres"
 	"metalink/internal/util"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"time"
@@ -51,8 +52,14 @@ func main() {
 	// Create polygons for ways
 	wayPolygons := createWayPolygons(settlements, nodeCache)
 
+	log.Printf("Found %d settlements", len(settlements))
+	log.Printf("Found %d way polygons", len(wayPolygons))
+
 	// Save settlements to PostgreSQL
 	saveSettlementsToDB(settlements, wayPolygons, db)
+
+	// Export all settlements to a single GeoJSON file
+	exportToGeoJSON(settlements, wayPolygons, args.osmFile)
 }
 
 // CommandLineArgs holds the parsed command line arguments
@@ -418,11 +425,121 @@ func saveSettlementsToDB(settlements map[string]Settlement, wayPolygons map[stri
 	log.Println("Processing complete!")
 }
 
+// exportToGeoJSON exports all settlements to a single GeoJSON file
+func exportToGeoJSON(settlements map[string]Settlement, wayPolygons map[string]WayPolygon, osmFilePath string) {
+	log.Println("Exporting settlements to GeoJSON file...")
+
+	// Create a GeoJSON FeatureCollection to hold all features
+	fc := geojson.NewFeatureCollection()
+	exportCount := 0
+
+	// Process each settlement
+	for key, settlement := range settlements {
+		var feature *geojson.Feature
+		var err error
+
+		if settlement.IsNode {
+			// For nodes, create a circular polygon
+			feature, err = createCircleFeature(settlement)
+		} else {
+			// For ways, use the polygon if valid
+			if wayPolygon, exists := wayPolygons[key]; exists && wayPolygon.IsValid {
+				feature, err = createPolygonFeature(settlement, wayPolygon.Points)
+			} else {
+				// Fallback to circle if polygon is invalid
+				feature, err = createCircleFeature(settlement)
+			}
+		}
+
+		if err != nil {
+			log.Printf("Failed to create GeoJSON feature for settlement %s: %v", key, err)
+			continue
+		}
+
+		// Add properties to the feature
+		properties := map[string]interface{}{
+			"id":         settlement.ID,
+			"name":       settlement.Name,
+			"type":       settlement.Type,
+			"population": settlement.Population,
+			"is_node":    settlement.IsNode,
+		}
+
+		for k, v := range properties {
+			feature.Properties[k] = v
+		}
+
+		// Add the feature to the collection
+		fc.Append(feature)
+		exportCount++
+	}
+
+	// Generate output filename from the input file
+	baseFileName := filepath.Base(osmFilePath)
+	ext := filepath.Ext(baseFileName)
+	outputFileName := fmt.Sprintf("%s_settlements.geojson", baseFileName[:len(baseFileName)-len(ext)])
+
+	// Marshal the FeatureCollection to JSON
+	jsonData, err := json.MarshalIndent(fc, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to marshal GeoJSON: %v", err)
+	}
+
+	// Write to file
+	err = os.WriteFile(outputFileName, jsonData, 0644)
+	if err != nil {
+		log.Fatalf("Failed to write GeoJSON file: %v", err)
+	}
+
+	log.Printf("Exported %d settlements to %s", exportCount, outputFileName)
+}
+
+// createCircleFeature creates a GeoJSON feature with a circular polygon for a settlement
+func createCircleFeature(settlement Settlement) (*geojson.Feature, error) {
+	// Create a circle with 16 points
+	numPoints := 16
+	circle := make(orb.Ring, numPoints+1)
+	radius := getSettlementRadius(settlement.Type)
+
+	for i := 0; i < numPoints; i++ {
+		angle := 2 * float64(i) * 3.14159 / float64(numPoints)
+		// Calculate point at angle and distance
+		dx := radius * 0.000008998 * math.Cos(angle) // ~111km per degree
+		dy := radius * 0.000008998 * math.Sin(angle) * math.Cos(settlement.Lat*3.14159/180)
+
+		circle[i] = orb.Point{settlement.Lon + dx, settlement.Lat + dy}
+	}
+
+	// Close the ring
+	circle[numPoints] = circle[0]
+
+	// Create a polygon from the ring
+	polygon := orb.Polygon{circle}
+
+	// Create a GeoJSON feature
+	feature := geojson.NewFeature(polygon)
+
+	return feature, nil
+}
+
+// createPolygonFeature creates a GeoJSON feature with a polygon for a settlement
+func createPolygonFeature(settlement Settlement, points []orb.Point) (*geojson.Feature, error) {
+	// Create a ring from points
+	ring := orb.Ring(points)
+
+	// Create a polygon from the ring
+	polygon := orb.Polygon{ring}
+
+	// Create a GeoJSON feature
+	feature := geojson.NewFeature(polygon)
+
+	return feature, nil
+}
+
 // isSettlementType checks if the type is one of the main types of settlements
 func isSettlementType(placeType string) bool {
 	switch placeType {
-	case "city", "town", "village", "hamlet":
-		// case "city", "town", "village", "hamlet", "suburb", "neighbourhood", "quarter", "borough":
+	case "city", "town", "village", "hamlet", "suburb", "neighbourhood", "quarter", "borough":
 		return true
 	default:
 		return false
@@ -496,8 +613,8 @@ func getSettlementRadius(settlementType string) float64 {
 		return 1000.0
 	case "hamlet":
 		return 500.0
-	// case "suburb", "neighbourhood", "quarter", "borough":
-	// 	return 800.0
+	case "suburb", "neighbourhood", "quarter", "borough":
+		return 800.0
 	default:
 		return 500.0
 	}

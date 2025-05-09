@@ -5,7 +5,7 @@
 *.so
 *.dylib
 *.pbf
-
+*.geojson
 # Test binary, built with `go test -c`
 *.test
 
