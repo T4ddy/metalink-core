@@ -7,16 +7,6 @@ import (
 	"github.com/paulmach/orb/planar"
 )
 
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-// TODO: check performance of s2 and orb
-
 func MoveToward(startLat, startLng, endLat, endLng, distanceMeters float64) [2]float64 {
 	// Convert degrees to S2 points
 	startPoint := s2.PointFromLatLng(s2.LatLngFromDegrees(startLat, startLng))
