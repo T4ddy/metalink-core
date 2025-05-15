@@ -11,19 +11,6 @@ import (
 	"github.com/paulmach/orb/geojson"
 )
 
-// OSMObject represents any OSM object of interest for game mechanics
-type OSMObject struct {
-	ID       int64
-	Type     string // building, water, amenity, etc.
-	SubType  string // residential, river, parking, etc.
-	Tags     map[string]string
-	Lat, Lon float64
-	NodeIDs  []int64 // For ways
-	IsNode   bool
-	Points   [][2]float64 // For polygons [lat, lon]
-	IsValid  bool         // Indicates if polygon is valid
-}
-
 // GameTile represents a tile in our game grid
 type GameTile struct {
 	ID          string
@@ -35,20 +22,26 @@ type GameTile struct {
 }
 
 func main() {
-	MaxTileSize := 20000.0
+	buildBaseUSAGrid()
+}
+
+func buildBaseUSAGrid() []GameTile {
+	MaxTileSize := 100 * 1000.0
 
 	// Define corners in [lat, lon] format
-	TopLeft := [2]float64{45.945233, -104.045464}
-	TopRight := [2]float64{45.935212, -96.563728}
-	BottomLeft := [2]float64{43.000628, -104.052966}
-	BottomRight := [2]float64{42.475416, -96.323787}
+	TopLeft := [2]float64{49.3843580, -125.0016500}
+	TopRight := [2]float64{49.3843580, -66.9345700}
+	BottomLeft := [2]float64{24.3963080, -125.0016500}
+	BottomRight := [2]float64{24.3963080, -66.9345700}
 
 	// Build dynamic grid
-	tiles := buildDynamicGrid(TopLeft, TopRight, BottomLeft, BottomRight, MaxTileSize)
-	fmt.Printf("Created %d tiles in dynamic grid\n", len(tiles))
+	tiles := buildFixeSizedGrid(TopLeft, TopRight, BottomLeft, BottomRight, MaxTileSize)
+	fmt.Printf("Created %d tiles with buildBaseUSAGrid\n", len(tiles))
 
 	// Export tiles to GeoJSON
 	exportTilesToGeoJSON(tiles, "output_tiles.geojson", TopLeft, TopRight, BottomLeft, BottomRight)
+
+	return tiles
 }
 
 // haversineDistance calculates the great-circle distance between two points in meters
@@ -72,81 +65,130 @@ func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
 	return c * r
 }
 
-// linearInterpolation calculates a point on a line between two points
-func linearInterpolation(p1, p2 [2]float64, fraction float64) [2]float64 {
-	return [2]float64{
-		p1[0] + (p2[0]-p1[0])*fraction,
-		p1[1] + (p2[1]-p1[1])*fraction,
-	}
+// roundToKilometers rounds a value to the nearest kilometer
+func roundToKilometers(value float64) float64 {
+	return math.Round(value/1000*1000) / 1000
 }
 
-func buildDynamicGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxTileSize float64) []GameTile {
-	// Calculate the height (left side) of the parent polygon in meters
-	leftSideHeight := haversineDistance(topLeft[0], topLeft[1], bottomLeft[0], bottomLeft[1])
-
-	// Calculate the height (right side) of the parent polygon in meters
-	rightSideHeight := haversineDistance(topRight[0], topRight[1], bottomRight[0], bottomRight[1])
-
-	// Use the average height to determine the number of rows
-	avgHeight := (leftSideHeight + rightSideHeight) / 2
-	numRows := int(math.Ceil(avgHeight / maxTileSize))
+// buildFixeSizedGrid creates a grid of tiles with area of maxTileSize*maxTileSize sq. meters
+// The height is always maxTileSize meters, and width is adjusted to achieve the target area
+func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxTileSize float64) []GameTile {
+	// Find the extreme points to ensure we cover the entire area
+	minLat := math.Min(math.Min(topLeft[0], topRight[0]), math.Min(bottomLeft[0], bottomRight[0]))
+	maxLat := math.Max(math.Max(topLeft[0], topRight[0]), math.Max(bottomLeft[0], bottomRight[0]))
+	minLon := math.Min(math.Min(topLeft[1], topRight[1]), math.Min(bottomLeft[1], bottomRight[1]))
+	maxLon := math.Max(math.Max(topLeft[1], topRight[1]), math.Max(bottomLeft[1], bottomRight[1]))
 
 	// Create tiles array
 	var tiles []GameTile
+	targetArea := maxTileSize * maxTileSize
 
-	// For each row
-	for row := 0; row < numRows; row++ {
-		// Calculate the fraction of the height for the top and bottom of this row
-		topFraction := float64(row) / float64(numRows)
-		bottomFraction := float64(row+1) / float64(numRows)
-		if bottomFraction > 1.0 {
-			bottomFraction = 1.0 // Ensure we don't go beyond the bottom boundary
-		}
+	// Start at the northernmost latitude (max) and move south
+	lat := maxLat
+	row := 0
 
-		// Calculate the top and bottom points of this row by interpolating between corners
-		topLeftPoint := linearInterpolation(topLeft, bottomLeft, topFraction)
-		topRightPoint := linearInterpolation(topRight, bottomRight, topFraction)
-		bottomLeftPoint := linearInterpolation(topLeft, bottomLeft, bottomFraction)
-		bottomRightPoint := linearInterpolation(topRight, bottomRight, bottomFraction)
+	// Continue creating rows until we've covered the entire area and beyond if needed
+	for {
+		// Calculate the next latitude that is exactly maxTileSize meters south
+		nextLat := getDestinationPoint(lat, minLon, 180, maxTileSize)[0]
 
-		// Calculate the width of the top and bottom of this row
-		topWidth := haversineDistance(topLeftPoint[0], topLeftPoint[1], topRightPoint[0], topRightPoint[1])
-		bottomWidth := haversineDistance(bottomLeftPoint[0], bottomLeftPoint[1], bottomRightPoint[0], bottomRightPoint[1])
+		// Start at the westernmost longitude (min) and move east
+		lon := minLon
+		col := 0
 
-		// Use the maximum width to determine the number of columns
-		maxWidth := math.Max(topWidth, bottomWidth)
-		numCols := int(math.Ceil(maxWidth / maxTileSize))
+		for {
+			// Calculate the adjusted width for this tile to achieve the target area
+			// The width depends on the latitude because longitudes get closer at higher latitudes
+			// We'll calculate the width at the midpoint of our tile's latitude
+			midLat := (lat + nextLat) / 2
 
-		// For each column in this row
-		for col := 0; col < numCols; col++ {
-			// Calculate the fraction of the width for the left and right of this column
-			leftFraction := float64(col) / float64(numCols)
-			rightFraction := float64(col+1) / float64(numCols)
-			if rightFraction > 1.0 {
-				rightFraction = 1.0 // Ensure we don't go beyond the right boundary
-			}
+			// Calculate how many degrees of longitude we need to go east to cover the target area
+			// We know height is maxTileSize, so width = targetArea / height
+			targetWidth := targetArea / maxTileSize
 
-			// Calculate the four corners of this tile by interpolating
-			topLeft := linearInterpolation(topLeftPoint, topRightPoint, leftFraction)
-			topRight := linearInterpolation(topLeftPoint, topRightPoint, rightFraction)
-			bottomLeft := linearInterpolation(bottomLeftPoint, bottomRightPoint, leftFraction)
-			bottomRight := linearInterpolation(bottomLeftPoint, bottomRightPoint, rightFraction)
+			// Calculate how far to go east in longitude degrees
+			// This is based on the formula for distance along a parallel of latitude
+			earthRadius := 6371000.0 // Earth's radius in meters
+			latRad := midLat * math.Pi / 180
+			lonDiffRad := targetWidth / (earthRadius * math.Cos(latRad))
+			lonDiff := lonDiffRad * 180 / math.Pi
+
+			// Calculate the next longitude
+			nextLon := lon + lonDiff
+
+			// Create the four corners of this tile
+			tileTopLeft := [2]float64{lat, lon}
+			tileTopRight := [2]float64{lat, nextLon}
+			tileBottomLeft := [2]float64{nextLat, lon}
+			tileBottomRight := [2]float64{nextLat, nextLon}
 
 			// Create a tile
 			tile := GameTile{
 				ID:          fmt.Sprintf("tile_%d_%d", row, col),
-				TopLeft:     topLeft,
-				TopRight:    topRight,
-				BottomLeft:  bottomLeft,
-				BottomRight: bottomRight,
+				TopLeft:     tileTopLeft,
+				TopRight:    tileTopRight,
+				BottomLeft:  tileBottomLeft,
+				BottomRight: tileBottomRight,
 				Size:        maxTileSize,
 			}
 
 			tiles = append(tiles, tile)
+
+			// Move to the next column
+			lon = nextLon
+			col++
+
+			// Stop when we've gone beyond the eastern boundary
+			if lon > maxLon {
+				break
+			}
+		}
+
+		// Move to the next row
+		lat = nextLat
+		row++
+
+		// Stop when we've gone beyond the southern boundary
+		if lat < minLat {
+			break
 		}
 	}
 
 	return tiles
+}
+
+// getDestinationPoint calculates a destination point given a starting point, bearing and distance
+// lat, lon are in degrees, bearing in degrees (0=north, 90=east, etc), distance in meters
+// Returns [lat, lon] in degrees
+func getDestinationPoint(lat, lon, bearing, distance float64) [2]float64 {
+	// Convert to radians
+	latRad := lat * math.Pi / 180
+	lonRad := lon * math.Pi / 180
+	bearingRad := bearing * math.Pi / 180
+
+	// Earth's radius in meters
+	earthRadius := 6371000.0
+
+	// Calculate
+	distRatio := distance / earthRadius
+
+	// Calculate new latitude
+	newLatRad := math.Asin(
+		math.Sin(latRad)*math.Cos(distRatio) +
+			math.Cos(latRad)*math.Sin(distRatio)*math.Cos(bearingRad),
+	)
+
+	// Calculate new longitude
+	newLonRad := lonRad + math.Atan2(
+		math.Sin(bearingRad)*math.Sin(distRatio)*math.Cos(latRad),
+		math.Cos(distRatio)-math.Sin(latRad)*math.Sin(newLatRad),
+	)
+
+	// Convert back to degrees
+	newLat := newLatRad * 180 / math.Pi
+	newLon := newLonRad * 180 / math.Pi
+
+	return [2]float64{newLat, newLon}
 }
 
 // exportTilesToGeoJSON exports tiles to a GeoJSON file for visualization
@@ -189,11 +231,11 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 		// feature.Properties["id"] = tile.ID
 		// feature.Properties["width_kilometers"] = math.Round(avgWidth/1000*1000) / 1000
 		// feature.Properties["height_kilometers"] = math.Round(avgHeight/1000*1000) / 1000
-		feature.Properties["top_width_kilometers"] = math.Round(topWidth/1000*1000) / 1000
-		feature.Properties["bottom_width_kilometers"] = math.Round(bottomWidth/1000*1000) / 1000
-		feature.Properties["left_height_kilometers"] = math.Round(leftHeight/1000*1000) / 1000
-		feature.Properties["right_height_kilometers"] = math.Round(rightHeight/1000*1000) / 1000
-		feature.Properties["area_kilometers"] = math.Round(area/1000000*1000) / 1000
+		feature.Properties["top_width_km"] = roundToKilometers(topWidth)
+		feature.Properties["bottom_width_km"] = roundToKilometers(bottomWidth)
+		feature.Properties["left_height_km"] = roundToKilometers(leftHeight)
+		feature.Properties["right_height_km"] = roundToKilometers(rightHeight)
+		feature.Properties["area_km"] = roundToKilometers(area / 1000)
 
 		// Add the feature to the collection
 		fc.Append(feature)
