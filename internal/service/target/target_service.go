@@ -543,7 +543,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 
 				var targets []model.TargetPG
 				for j := 0; j < currentBatchSize; j++ {
-					id, err := util.GenerateUniqueID(6)
+					id, err := util.GenerateUUIDWithLength(6)
 					if err != nil {
 						errChan <- err
 						return

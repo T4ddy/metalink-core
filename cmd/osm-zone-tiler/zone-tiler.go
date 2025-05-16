@@ -6,23 +6,56 @@ import (
 	"log"
 	"math"
 	"os"
+	"time"
 
+	"metalink/internal/model"
+	pg "metalink/internal/postgres"
+
+	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geojson"
+	"gorm.io/gorm"
 )
 
 // GameTile represents a tile in our game grid
 type GameTile struct {
-	ID          string
-	TopLeft     [2]float64 // [lat, lon]
-	TopRight    [2]float64 // [lat, lon]
-	BottomLeft  [2]float64 // [lat, lon]
-	BottomRight [2]float64 // [lat, lon]
-	Size        float64    // Size in meters
+	ID                string
+	TopLeftLatLon     [2]float64 // [lat, lon]
+	TopRightLatLon    [2]float64 // [lat, lon]
+	BottomLeftLatLon  [2]float64 // [lat, lon]
+	BottomRightLatLon [2]float64 // [lat, lon]
+	Size              float64    // Size in meters
 }
 
 func main() {
-	buildBaseUSAGrid()
+	// Initialize database
+	initDB()
+	defer pg.Close()
+
+	// Generate tiles
+	tilesUSA := buildBaseUSAGrid()
+
+	// Save tiles to database
+	saveTilesToDB(tilesUSA)
+
+	log.Printf("Successfully saved %d tiles to database", len(tilesUSA))
+}
+
+// initDB initializes the database connection and runs migrations
+func initDB() *gorm.DB {
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgresql://postgres:postgres@localhost:5432/metalink?sslmode=disable"
+	}
+
+	db := pg.Init(dbURL)
+
+	err := db.AutoMigrate(&model.ZonePG{})
+	if err != nil {
+		log.Fatalf("Failed to migrate ZonePG model: %v", err)
+	}
+
+	return db
 }
 
 func buildBaseUSAGrid() []GameTile {
@@ -42,6 +75,60 @@ func buildBaseUSAGrid() []GameTile {
 	exportTilesToGeoJSON(tiles, "output_tiles.geojson", TopLeft, TopRight, BottomLeft, BottomRight)
 
 	return tiles
+}
+
+// saveTilesToDB converts GameTiles to ZonePG models and saves them to the database
+func saveTilesToDB(tiles []GameTile) {
+	db := pg.GetDB()
+
+	// Create a batch of zones to insert
+	var zones []model.ZonePG
+	now := time.Now()
+
+	for _, tile := range tiles {
+		// Generate a UUID if the tile ID is in format "tile_X_Y"
+		id := tile.ID
+		if _, err := fmt.Sscanf(tile.ID, "tile_%d_%d", new(int), new(int)); err == nil {
+			id = uuid.New().String()
+		}
+
+		topLeft := model.Float64Slice{tile.TopLeftLatLon[0], tile.TopLeftLatLon[1]}
+		topRight := model.Float64Slice{tile.TopRightLatLon[0], tile.TopRightLatLon[1]}
+		bottomLeft := model.Float64Slice{tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1]}
+		bottomRight := model.Float64Slice{tile.BottomRightLatLon[0], tile.BottomRightLatLon[1]}
+
+		// Create a ZonePG from the GameTile
+		zone := model.ZonePG{
+			ID:                id,
+			Name:              fmt.Sprintf("Zone %s", id),
+			TopLeftLatLon:     topLeft,
+			TopRightLatLon:    topRight,
+			BottomLeftLatLon:  bottomLeft,
+			BottomRightLatLon: bottomRight,
+			Effects:           []model.ZoneEffect{}, // Empty effects array
+			CreatedAt:         now,
+			UpdatedAt:         now,
+		}
+
+		zones = append(zones, zone)
+	}
+
+	// Insert in batches of 100 to avoid overwhelming the database
+	batchSize := 100
+	for i := 0; i < len(zones); i += batchSize {
+		end := i + batchSize
+		if end > len(zones) {
+			end = len(zones)
+		}
+
+		batch := zones[i:end]
+		result := db.Create(&batch)
+		if result.Error != nil {
+			log.Printf("Error saving batch %d-%d: %v", i, end, result.Error)
+		} else {
+			log.Printf("Saved batch %d-%d successfully", i, end)
+		}
+	}
 }
 
 // haversineDistance calculates the great-circle distance between two points in meters
@@ -124,12 +211,12 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 
 			// Create a tile
 			tile := GameTile{
-				ID:          fmt.Sprintf("tile_%d_%d", row, col),
-				TopLeft:     tileTopLeft,
-				TopRight:    tileTopRight,
-				BottomLeft:  tileBottomLeft,
-				BottomRight: tileBottomRight,
-				Size:        maxTileSize,
+				ID:                fmt.Sprintf("tile_%d_%d", row, col),
+				TopLeftLatLon:     tileTopLeft,
+				TopRightLatLon:    tileTopRight,
+				BottomLeftLatLon:  tileBottomLeft,
+				BottomRightLatLon: tileBottomRight,
+				Size:              maxTileSize,
 			}
 
 			tiles = append(tiles, tile)
@@ -202,11 +289,11 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 	for _, tile := range tiles {
 		// Create a polygon from the tile corners - convert to orb.Ring for GeoJSON
 		ring := orb.Ring{
-			{tile.TopLeft[1], tile.TopLeft[0]},         // Top Left (lon, lat)
-			{tile.TopRight[1], tile.TopRight[0]},       // Top Right (lon, lat)
-			{tile.BottomRight[1], tile.BottomRight[0]}, // Bottom Right (lon, lat)
-			{tile.BottomLeft[1], tile.BottomLeft[0]},   // Bottom Left (lon, lat)
-			{tile.TopLeft[1], tile.TopLeft[0]},         // Close the ring (lon, lat)
+			{tile.TopLeftLatLon[1], tile.TopLeftLatLon[0]},         // [lon, lat] for GeoJSON
+			{tile.TopRightLatLon[1], tile.TopRightLatLon[0]},       // [lon, lat] for GeoJSON
+			{tile.BottomRightLatLon[1], tile.BottomRightLatLon[0]}, // [lon, lat] for GeoJSON
+			{tile.BottomLeftLatLon[1], tile.BottomLeftLatLon[0]},   // [lon, lat] for GeoJSON
+			{tile.TopLeftLatLon[1], tile.TopLeftLatLon[0]},         // Close the ring
 		}
 
 		polygon := orb.Polygon{ring}
@@ -215,10 +302,22 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 		feature := geojson.NewFeature(polygon)
 
 		// Calculate actual width and height in meters for this specific tile
-		topWidth := haversineDistance(tile.TopLeft[0], tile.TopLeft[1], tile.TopRight[0], tile.TopRight[1])
-		bottomWidth := haversineDistance(tile.BottomLeft[0], tile.BottomLeft[1], tile.BottomRight[0], tile.BottomRight[1])
-		leftHeight := haversineDistance(tile.TopLeft[0], tile.TopLeft[1], tile.BottomLeft[0], tile.BottomLeft[1])
-		rightHeight := haversineDistance(tile.TopRight[0], tile.TopRight[1], tile.BottomRight[0], tile.BottomRight[1])
+		topWidth := haversineDistance(
+			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
+			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
+		)
+		bottomWidth := haversineDistance(
+			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
+			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
+		)
+		leftHeight := haversineDistance(
+			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
+			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
+		)
+		rightHeight := haversineDistance(
+			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
+			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
+		)
 
 		// Average width and height
 		// avgWidth := (topWidth + bottomWidth) / 2

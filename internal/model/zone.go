@@ -1,17 +1,13 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/paulmach/orb"
 	"gorm.io/gorm"
-)
-
-type ZoneState int
-
-const (
-	ZoneStateActive ZoneState = iota
-	ZoneStateInactive
 )
 
 type EffectType int
@@ -31,6 +27,23 @@ const (
 	// ... other target param types
 )
 
+// Float64Slice is a custom type for JSONB serialization of []float64
+type Float64Slice []float64
+
+// Value implements the driver.Valuer interface for database serialization
+func (f Float64Slice) Value() (driver.Value, error) {
+	return json.Marshal(f)
+}
+
+// Scan implements the sql.Scanner interface for database deserialization
+func (f *Float64Slice) Scan(value interface{}) error {
+	bytes, ok := value.([]byte)
+	if !ok {
+		return fmt.Errorf("cannot convert %T to Float64Slice", value)
+	}
+	return json.Unmarshal(bytes, f)
+}
+
 type ZoneEffect struct {
 	EffectType   EffectType      `gorm:"not null"`
 	ResourceType TargetParamType `gorm:"not null"`
@@ -39,12 +52,13 @@ type ZoneEffect struct {
 
 // ZonePG model for PostgreSQL storage
 type ZonePG struct {
-	ID       string       `gorm:"primaryKey"`
-	Name     string       `gorm:"size:255;not null"`
-	Type     string       `gorm:"size:50;not null"`
-	State    ZoneState    `gorm:"not null"`
-	Geometry string       `gorm:"type:text;not null"`
-	Effects  []ZoneEffect `gorm:"type:jsonb"`
+	ID                string       `gorm:"primaryKey"`
+	Name              string       `gorm:"size:255;not null"`
+	TopLeftLatLon     Float64Slice `gorm:"type:jsonb;not null"`
+	TopRightLatLon    Float64Slice `gorm:"type:jsonb;not null"`
+	BottomLeftLatLon  Float64Slice `gorm:"type:jsonb;not null"`
+	BottomRightLatLon Float64Slice `gorm:"type:jsonb;not null"`
+	Effects           []ZoneEffect `gorm:"type:jsonb"`
 
 	UpdatedAt time.Time      `gorm:"column:updated_at"`
 	CreatedAt time.Time      `gorm:"column:created_at"`
@@ -58,12 +72,13 @@ func (ZonePG) TableName() string {
 
 // Zone in-memory model
 type Zone struct {
-	ID       string
-	Name     string
-	Type     string
-	State    ZoneState
-	Geometry string // GeoJSON polygon as a string
-	Effects  []ZoneEffect
+	ID                string
+	Name              string
+	TopLeftLatLon     []float64
+	TopRightLatLon    []float64
+	BottomLeftLatLon  []float64
+	BottomRightLatLon []float64
+	Effects           []ZoneEffect
 
 	UpdatedAt time.Time
 	CreatedAt time.Time
@@ -77,14 +92,15 @@ type Zone struct {
 // ZoneFromPG creates a Zone from ZonePG
 func ZoneFromPG(pg *ZonePG) *Zone {
 	return &Zone{
-		ID:        pg.ID,
-		Name:      pg.Name,
-		Type:      pg.Type,
-		State:     pg.State,
-		Geometry:  pg.Geometry,
-		Effects:   pg.Effects,
-		UpdatedAt: pg.UpdatedAt,
-		CreatedAt: pg.CreatedAt,
-		DeletedAt: pg.DeletedAt,
+		ID:                pg.ID,
+		Name:              pg.Name,
+		TopLeftLatLon:     pg.TopLeftLatLon,
+		TopRightLatLon:    pg.TopRightLatLon,
+		BottomLeftLatLon:  pg.BottomLeftLatLon,
+		BottomRightLatLon: pg.BottomRightLatLon,
+		Effects:           pg.Effects,
+		UpdatedAt:         pg.UpdatedAt,
+		CreatedAt:         pg.CreatedAt,
+		DeletedAt:         pg.DeletedAt,
 	}
 }

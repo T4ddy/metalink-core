@@ -507,7 +507,7 @@ func createQuadTreeGrid(minLat, minLon, maxLat, maxLon float64, objects map[int6
 
 	// Generate unique IDs for tiles
 	for i, tile := range tiles {
-		id, err := util.GenerateUniqueID(8)
+		id, err := util.GenerateUUIDWithLength(8)
 		if err != nil {
 			id = fmt.Sprintf("tile_%d", i)
 		}

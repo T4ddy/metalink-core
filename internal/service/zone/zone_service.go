@@ -14,7 +14,6 @@ import (
 
 	"github.com/dhconnelly/rtreego"
 	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/geojson"
 )
 
 // ZoneSpatial represents a zone with its spatial information for R-tree indexing
@@ -141,65 +140,39 @@ func (s *ZoneService) rebuildSpatialIndex() {
 			// Insert into R-tree
 			s.spatialIndex.Insert(zoneSpatial)
 		} else {
-			// Parse geometry if not done yet
-			polygon, bounds, err := s.parseGeometry(zone.Geometry)
-			if err == nil {
-				zone.Polygon = polygon
-				zone.BoundingBox = bounds
+			// Create polygon from corner points
+			polygon, bounds := s.createPolygonFromCorners(zone)
+			zone.Polygon = polygon
+			zone.BoundingBox = bounds
 
-				// Create and insert ZoneSpatial
-				zoneSpatial := &ZoneSpatial{
-					ID:          zone.ID,
-					Polygon:     polygon,
-					BoundingBox: bounds,
-					Zone:        zone,
-				}
-				s.spatialIndex.Insert(zoneSpatial)
+			// Create and insert ZoneSpatial
+			zoneSpatial := &ZoneSpatial{
+				ID:          zone.ID,
+				Polygon:     polygon,
+				BoundingBox: bounds,
+				Zone:        zone,
 			}
+			s.spatialIndex.Insert(zoneSpatial)
 		}
 		return true
 	})
 }
 
-// parseGeometry converts a GeoJSON string into a polygon and its bounds
-func (s *ZoneService) parseGeometry(geometryStr string) (*orb.Polygon, *orb.Bound, error) {
-	fc, err := geojson.UnmarshalFeatureCollection([]byte(geometryStr))
-	if err != nil {
-		// Attempt to unmarshal as a single Feature if FeatureCollection fails
-		feature, err := geojson.UnmarshalFeature([]byte(geometryStr))
-		if err != nil {
-			return nil, nil, err
-		}
-		fc = &geojson.FeatureCollection{Features: []*geojson.Feature{feature}}
+// createPolygonFromCorners creates a polygon from the four corner points
+func (s *ZoneService) createPolygonFromCorners(zone *model.Zone) (*orb.Polygon, *orb.Bound) {
+	// Create a polygon from the four corners
+	// Order matters: we go clockwise from top-left
+	ring := orb.Ring{
+		orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // [lon, lat]
+		orb.Point{zone.TopRightLatLon[1], zone.TopRightLatLon[0]},       // [lon, lat]
+		orb.Point{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}, // [lon, lat]
+		orb.Point{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]},   // [lon, lat]
+		orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // Close the ring
 	}
 
-	if len(fc.Features) == 0 {
-		return nil, nil, fmt.Errorf("no features in geometry")
-	}
-
-	feature := fc.Features[0]
-	geometry := feature.Geometry
-	geotype := geometry.GeoJSONType()
-
-	if geotype != "Polygon" && geotype != "MultiPolygon" {
-		return nil, nil, fmt.Errorf("geometry is not a polygon: %s", geotype)
-	}
-
-	var polygon orb.Polygon
-	if geotype == "Polygon" {
-		polygon = geometry.(orb.Polygon)
-	} else {
-		// Take the first polygon from the multipolygon
-		multiPolygon := geometry.(orb.MultiPolygon)
-		if len(multiPolygon) > 0 {
-			polygon = multiPolygon[0]
-		} else {
-			return nil, nil, fmt.Errorf("empty multipolygon")
-		}
-	}
-
+	polygon := orb.Polygon{ring}
 	bound := polygon.Bound()
-	return &polygon, &bound, nil
+	return &polygon, &bound
 }
 
 // GetZonesAtPoint returns all zones containing the given point
@@ -288,10 +261,6 @@ func (s *ZoneService) GetEffectsForTarget(lat, lng float64) map[model.TargetPara
 	effects := make(map[model.TargetParamType]float32)
 
 	for _, zone := range zones {
-		if zone.State != model.ZoneStateActive {
-			continue
-		}
-
 		for _, effect := range zone.Effects {
 			currentValue := effects[effect.ResourceType]
 

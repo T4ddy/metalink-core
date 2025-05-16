@@ -360,9 +360,9 @@ func saveSettlementsToDB(settlements map[string]Settlement, wayPolygons map[stri
 
 	for key, settlement := range settlements {
 		// Create a unique ID for the zone
-		zoneID, err := util.GenerateUniqueID(8)
-		if err != nil {
-			log.Printf("Failed to generate ID for settlement %s: %v", key, err)
+		zoneID := util.ShortUUID()
+		if zoneID == "" {
+			log.Printf("Failed to generate ID for settlement %s", key)
 			continue
 		}
 
