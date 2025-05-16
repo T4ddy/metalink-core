@@ -10,9 +10,9 @@ import (
 	"github.com/paulmach/orb/geojson"
 )
 
-// exportTilesToGeoJSON exports tiles to a GeoJSON file for visualization
-func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight, bottomLeft, bottomRight [2]float64) {
-	log.Printf("Exporting %d tiles to GeoJSON file: %s", len(tiles), outputFile)
+// exportZonesToGeoJSON exports zones to a GeoJSON file for visualization
+func exportZonesToGeoJSON(zones []GameZone, outputFile string, topLeft, topRight, bottomLeft, bottomRight [2]float64) {
+	log.Printf("Exporting %d zones to GeoJSON file: %s", len(zones), outputFile)
 
 	// Create a GeoJSON FeatureCollection
 	fc := geojson.NewFeatureCollection()
@@ -27,52 +27,52 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 	}
 	boundaryPolygon := orb.Polygon{boundaryRing}
 
-	// Add each tile as a feature
-	for _, tile := range tiles {
-		// Check if at least one corner of the tile is inside the boundary polygon
-		topLeftPoint := orb.Point{tile.TopLeftLatLon[1], tile.TopLeftLatLon[0]}
-		topRightPoint := orb.Point{tile.TopRightLatLon[1], tile.TopRightLatLon[0]}
-		bottomLeftPoint := orb.Point{tile.BottomLeftLatLon[1], tile.BottomLeftLatLon[0]}
-		bottomRightPoint := orb.Point{tile.BottomRightLatLon[1], tile.BottomRightLatLon[0]}
+	// Add each zone as a feature
+	for _, zone := range zones {
+		// Check if at least one corner of the zone is inside the boundary polygon
+		topLeftPoint := orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]}
+		topRightPoint := orb.Point{zone.TopRightLatLon[1], zone.TopRightLatLon[0]}
+		bottomLeftPoint := orb.Point{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]}
+		bottomRightPoint := orb.Point{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}
 
-		// Skip this tile if none of its corners are inside the boundary polygon
-		if !util.PointInPolygon(boundaryPolygon, topLeftPoint) ||
-			!util.PointInPolygon(boundaryPolygon, topRightPoint) ||
-			!util.PointInPolygon(boundaryPolygon, bottomLeftPoint) ||
+		// Skip this zone if none of its corners are inside the boundary polygon
+		if !util.PointInPolygon(boundaryPolygon, topLeftPoint) &&
+			!util.PointInPolygon(boundaryPolygon, topRightPoint) &&
+			!util.PointInPolygon(boundaryPolygon, bottomLeftPoint) &&
 			!util.PointInPolygon(boundaryPolygon, bottomRightPoint) {
 			continue
 		}
 
-		// Create a polygon from the tile corners - convert to orb.Ring for GeoJSON
+		// Create a polygon from the zone corners - convert to orb.Ring for GeoJSON
 		ring := orb.Ring{
-			{tile.TopLeftLatLon[1], tile.TopLeftLatLon[0]},         // [lon, lat] for GeoJSON
-			{tile.TopRightLatLon[1], tile.TopRightLatLon[0]},       // [lon, lat] for GeoJSON
-			{tile.BottomRightLatLon[1], tile.BottomRightLatLon[0]}, // [lon, lat] for GeoJSON
-			{tile.BottomLeftLatLon[1], tile.BottomLeftLatLon[0]},   // [lon, lat] for GeoJSON
-			{tile.TopLeftLatLon[1], tile.TopLeftLatLon[0]},         // Close the ring
+			{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // [lon, lat] for GeoJSON
+			{zone.TopRightLatLon[1], zone.TopRightLatLon[0]},       // [lon, lat] for GeoJSON
+			{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}, // [lon, lat] for GeoJSON
+			{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]},   // [lon, lat] for GeoJSON
+			{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // Close the ring
 		}
 
 		polygon := orb.Polygon{ring}
 
-		// Create a feature from the tile polygon
+		// Create a feature from the zone polygon
 		feature := geojson.NewFeature(polygon)
 
-		// Calculate actual width and height in meters for this specific tile
+		// Calculate actual width and height in meters for this specific zone
 		topWidth := util.HaversineDistance(
-			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
-			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
+			zone.TopLeftLatLon[0], zone.TopLeftLatLon[1],
+			zone.TopRightLatLon[0], zone.TopRightLatLon[1],
 		)
 		bottomWidth := util.HaversineDistance(
-			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
-			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
+			zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1],
+			zone.BottomRightLatLon[0], zone.BottomRightLatLon[1],
 		)
 		leftHeight := util.HaversineDistance(
-			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
-			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
+			zone.TopLeftLatLon[0], zone.TopLeftLatLon[1],
+			zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1],
 		)
 		rightHeight := util.HaversineDistance(
-			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
-			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
+			zone.TopRightLatLon[0], zone.TopRightLatLon[1],
+			zone.BottomRightLatLon[0], zone.BottomRightLatLon[1],
 		)
 
 		// Average height
@@ -129,5 +129,5 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 		log.Fatalf("Failed to write GeoJSON file: %v", err)
 	}
 
-	log.Printf("Successfully exported tiles to %s", outputFile)
+	log.Printf("Successfully exported zones to %s", outputFile)
 }

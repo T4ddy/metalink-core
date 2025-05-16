@@ -13,27 +13,27 @@ var (
 	USABottomRight = [2]float64{24.3963080, -66.9345700}
 )
 
-// buildBaseUSAGrid creates a grid of tiles covering the USA
-func buildBaseUSAGrid() []GameTile {
+// buildBaseUSAGrid creates a grid of zones covering the USA
+func buildBaseUSAGrid() []GameZone {
 	// Build dynamic grid
-	tiles := buildFixeSizedGrid(USATopLeft, USATopRight, USABottomLeft, USABottomRight, baseTileSize)
-	fmt.Printf("Created %d tiles with buildBaseUSAGrid\n", len(tiles))
+	zones := buildFixeSizedGrid(USATopLeft, USATopRight, USABottomLeft, USABottomRight, baseZoneSize)
+	fmt.Printf("Created %d zones with buildBaseUSAGrid\n", len(zones))
 
-	return tiles
+	return zones
 }
 
-// buildFixeSizedGrid creates a grid of tiles with area of maxTileSize*maxTileSize sq. meters
-// The height is always maxTileSize meters, and width is adjusted to achieve the target area
-func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxTileSize float64) []GameTile {
+// buildFixeSizedGrid creates a grid of zones with area of maxZoneSize*maxZoneSize sq. meters
+// The height is always maxZoneSize meters, and width is adjusted to achieve the target area
+func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxZoneSize float64) []GameZone {
 	// Find the extreme points to ensure we cover the entire area
 	minLat := math.Min(math.Min(topLeft[0], topRight[0]), math.Min(bottomLeft[0], bottomRight[0]))
 	maxLat := math.Max(math.Max(topLeft[0], topRight[0]), math.Max(bottomLeft[0], bottomRight[0]))
 	minLon := math.Min(math.Min(topLeft[1], topRight[1]), math.Min(bottomLeft[1], bottomRight[1]))
 	maxLon := math.Max(math.Max(topLeft[1], topRight[1]), math.Max(bottomLeft[1], bottomRight[1]))
 
-	// Create tiles array
-	var tiles []GameTile
-	targetArea := maxTileSize * maxTileSize
+	// Create zones array
+	var zones []GameZone
+	targetArea := maxZoneSize * maxZoneSize
 
 	// Start at the northernmost latitude (max) and move south
 	lat := maxLat
@@ -41,22 +41,22 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 
 	// Continue creating rows until we've covered the entire area and beyond if needed
 	for {
-		// Calculate the next latitude that is exactly maxTileSize meters south
-		nextLat := getDestinationPoint(lat, minLon, 180, maxTileSize)[0]
+		// Calculate the next latitude that is exactly maxZoneSize meters south
+		nextLat := getDestinationPoint(lat, minLon, 180, maxZoneSize)[0]
 
 		// Start at the westernmost longitude (min) and move east
 		lon := minLon
 		col := 0
 
 		for {
-			// Calculate the adjusted width for this tile to achieve the target area
+			// Calculate the adjusted width for this zone to achieve the target area
 			// The width depends on the latitude because longitudes get closer at higher latitudes
-			// We'll calculate the width at the midpoint of our tile's latitude
+			// We'll calculate the width at the midpoint of our zone's latitude
 			midLat := (lat + nextLat) / 2
 
 			// Calculate how many degrees of longitude we need to go east to cover the target area
-			// We know height is maxTileSize, so width = targetArea / height
-			targetWidth := targetArea / maxTileSize
+			// We know height is maxZoneSize, so width = targetArea / height
+			targetWidth := targetArea / maxZoneSize
 
 			// Calculate how far to go east in longitude degrees
 			// This is based on the formula for distance along a parallel of latitude
@@ -68,23 +68,23 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 			// Calculate the next longitude
 			nextLon := lon + lonDiff
 
-			// Create the four corners of this tile
-			tileTopLeft := [2]float64{lat, lon}
-			tileTopRight := [2]float64{lat, nextLon}
-			tileBottomLeft := [2]float64{nextLat, lon}
-			tileBottomRight := [2]float64{nextLat, nextLon}
+			// Create the four corners of this zone
+			zoneTopLeft := [2]float64{lat, lon}
+			zoneTopRight := [2]float64{lat, nextLon}
+			zoneBottomLeft := [2]float64{nextLat, lon}
+			zoneBottomRight := [2]float64{nextLat, nextLon}
 
-			// Create a tile
-			tile := GameTile{
-				ID:                fmt.Sprintf("tile_%d_%d", row, col),
-				TopLeftLatLon:     tileTopLeft,
-				TopRightLatLon:    tileTopRight,
-				BottomLeftLatLon:  tileBottomLeft,
-				BottomRightLatLon: tileBottomRight,
-				Size:              maxTileSize,
+			// Create a zone
+			zone := GameZone{
+				ID:                fmt.Sprintf("zone_%d_%d", row, col),
+				TopLeftLatLon:     zoneTopLeft,
+				TopRightLatLon:    zoneTopRight,
+				BottomLeftLatLon:  zoneBottomLeft,
+				BottomRightLatLon: zoneBottomRight,
+				Size:              maxZoneSize,
 			}
 
-			tiles = append(tiles, tile)
+			zones = append(zones, zone)
 
 			// Move to the next column
 			lon = nextLon
@@ -106,7 +106,7 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 		}
 	}
 
-	return tiles
+	return zones
 }
 
 // getDestinationPoint calculates a destination point given a starting point, bearing and distance

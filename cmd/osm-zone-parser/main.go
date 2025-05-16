@@ -19,8 +19,8 @@ var (
 	dbURL             string
 	runMode           int
 	osmFilePath       string
-	baseTileSize      float64
-	minTileSize       float64
+	baseZoneSize      float64
+	minZoneSize       float64
 	exportBaseMapJSON bool
 )
 
@@ -30,8 +30,8 @@ const (
 	RunModeOSMLayer = 2
 )
 
-// GameTile represents a tile in our game grid
-type GameTile struct {
+// GameZone represents a zone in our game grid
+type GameZone struct {
 	ID                string
 	TopLeftLatLon     [2]float64 // [lat, lon]
 	TopRightLatLon    [2]float64 // [lat, lon]
@@ -45,8 +45,8 @@ func init() {
 	flag.StringVar(&dbURL, "db-url", "postgresql://postgres:postgres@localhost:5432/metalink?sslmode=disable", "Database connection URL")
 	flag.IntVar(&runMode, "mode", 0, "Run mode: 1 = Base USA map initialization, 2 = Add OSM data layer")
 	flag.StringVar(&osmFilePath, "osm-file", "", "Path to OSM PBF file")
-	flag.Float64Var(&baseTileSize, "base-tile-size", 100000.0, "Base tile size in meters for USA map (default: 100km)")
-	flag.Float64Var(&minTileSize, "min-tile-size", 500.0, "Minimum tile size in meters (default: 500m)")
+	flag.Float64Var(&baseZoneSize, "base-zone-size", 100000.0, "Base zone size in meters for USA map (default: 100km)")
+	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
 	flag.BoolVar(&exportBaseMapJSON, "export-json", true, "Export base USA map to GeoJSON file")
 }
 
@@ -78,17 +78,17 @@ func main() {
 func runBaseInitMode() {
 	log.Println("Running in Base USA Map Initialization mode")
 
-	// Generate tiles
-	tilesUSA := buildBaseUSAGrid()
+	// Generate zones
+	zonesUSA := buildBaseUSAGrid()
 
-	// Save tiles to database
-	saveTilesToDB(tilesUSA)
+	// Save zones to database
+	saveZonesToDB(zonesUSA)
 
-	log.Printf("Successfully saved %d tiles to database", len(tilesUSA))
+	log.Printf("Successfully saved %d zones to database", len(zonesUSA))
 
-	// Export tiles to GeoJSON if enabled
+	// Export zones to GeoJSON if enabled
 	if exportBaseMapJSON {
-		exportTilesToGeoJSON(tilesUSA, "output_tiles.geojson", USATopLeft, USATopRight, USABottomLeft, USABottomRight)
+		exportZonesToGeoJSON(zonesUSA, "output_zones.geojson", USATopLeft, USATopRight, USABottomLeft, USABottomRight)
 	}
 }
 
@@ -127,28 +127,28 @@ func initDB() *gorm.DB {
 	return db
 }
 
-// saveTilesToDB converts GameTiles to ZonePG models and saves them to the database
-func saveTilesToDB(tiles []GameTile) {
+// saveZonesToDB converts GameZones to ZonePG models and saves them to the database
+func saveZonesToDB(zones []GameZone) {
 	db := pg.GetDB()
 
 	// Create a batch of zones to insert
-	var zones []model.ZonePG
+	var zonePGs []model.ZonePG
 	now := time.Now()
 
-	for _, tile := range tiles {
-		// Generate a UUID if the tile ID is in format "tile_X_Y"
-		id := tile.ID
-		if _, err := fmt.Sscanf(tile.ID, "tile_%d_%d", new(int), new(int)); err == nil {
+	for _, zone := range zones {
+		// Generate a UUID if the zone ID is in format "zone_X_Y"
+		id := zone.ID
+		if _, err := fmt.Sscanf(zone.ID, "zone_%d_%d", new(int), new(int)); err == nil {
 			id = uuid.New().String()
 		}
 
-		topLeft := model.Float64Slice{tile.TopLeftLatLon[0], tile.TopLeftLatLon[1]}
-		topRight := model.Float64Slice{tile.TopRightLatLon[0], tile.TopRightLatLon[1]}
-		bottomLeft := model.Float64Slice{tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1]}
-		bottomRight := model.Float64Slice{tile.BottomRightLatLon[0], tile.BottomRightLatLon[1]}
+		topLeft := model.Float64Slice{zone.TopLeftLatLon[0], zone.TopLeftLatLon[1]}
+		topRight := model.Float64Slice{zone.TopRightLatLon[0], zone.TopRightLatLon[1]}
+		bottomLeft := model.Float64Slice{zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1]}
+		bottomRight := model.Float64Slice{zone.BottomRightLatLon[0], zone.BottomRightLatLon[1]}
 
-		// Create a ZonePG from the GameTile
-		zone := model.ZonePG{
+		// Create a ZonePG from the GameZone
+		zonePG := model.ZonePG{
 			ID:                id,
 			Name:              fmt.Sprintf("Zone %s", id),
 			TopLeftLatLon:     topLeft,
@@ -160,18 +160,18 @@ func saveTilesToDB(tiles []GameTile) {
 			UpdatedAt:         now,
 		}
 
-		zones = append(zones, zone)
+		zonePGs = append(zonePGs, zonePG)
 	}
 
 	// Insert in batches of 100 to avoid overwhelming the database
 	batchSize := 100
-	for i := 0; i < len(zones); i += batchSize {
+	for i := 0; i < len(zonePGs); i += batchSize {
 		end := i + batchSize
-		if end > len(zones) {
-			end = len(zones)
+		if end > len(zonePGs) {
+			end = len(zonePGs)
 		}
 
-		batch := zones[i:end]
+		batch := zonePGs[i:end]
 		result := db.Create(&batch)
 		if result.Error != nil {
 			log.Printf("Error saving batch %d-%d: %v", i, end, result.Error)
