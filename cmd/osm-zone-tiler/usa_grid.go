@@ -5,156 +5,28 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"metalink/internal/util"
 	"os"
-	"time"
 
-	"metalink/internal/model"
-	pg "metalink/internal/postgres"
-
-	"github.com/google/uuid"
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geojson"
-	"gorm.io/gorm"
 )
 
-// GameTile represents a tile in our game grid
-type GameTile struct {
-	ID                string
-	TopLeftLatLon     [2]float64 // [lat, lon]
-	TopRightLatLon    [2]float64 // [lat, lon]
-	BottomLeftLatLon  [2]float64 // [lat, lon]
-	BottomRightLatLon [2]float64 // [lat, lon]
-	Size              float64    // Size in meters
-}
+// USA map boundaries in [lat, lon] format
+var (
+	USATopLeft     = [2]float64{49.3843580, -125.0016500}
+	USATopRight    = [2]float64{49.3843580, -66.9345700}
+	USABottomLeft  = [2]float64{24.3963080, -125.0016500}
+	USABottomRight = [2]float64{24.3963080, -66.9345700}
+)
 
-func main() {
-	// Initialize database
-	initDB()
-	defer pg.Close()
-
-	// Generate tiles
-	tilesUSA := buildBaseUSAGrid()
-
-	// Save tiles to database
-	saveTilesToDB(tilesUSA)
-
-	log.Printf("Successfully saved %d tiles to database", len(tilesUSA))
-}
-
-// initDB initializes the database connection and runs migrations
-func initDB() *gorm.DB {
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		dbURL = "postgresql://postgres:postgres@localhost:5432/metalink?sslmode=disable"
-	}
-
-	db := pg.Init(dbURL)
-
-	err := db.AutoMigrate(&model.ZonePG{})
-	if err != nil {
-		log.Fatalf("Failed to migrate ZonePG model: %v", err)
-	}
-
-	return db
-}
-
+// buildBaseUSAGrid creates a grid of tiles covering the USA
 func buildBaseUSAGrid() []GameTile {
-	MaxTileSize := 100 * 1000.0
-
-	// Define corners in [lat, lon] format
-	TopLeft := [2]float64{49.3843580, -125.0016500}
-	TopRight := [2]float64{49.3843580, -66.9345700}
-	BottomLeft := [2]float64{24.3963080, -125.0016500}
-	BottomRight := [2]float64{24.3963080, -66.9345700}
-
 	// Build dynamic grid
-	tiles := buildFixeSizedGrid(TopLeft, TopRight, BottomLeft, BottomRight, MaxTileSize)
+	tiles := buildFixeSizedGrid(USATopLeft, USATopRight, USABottomLeft, USABottomRight, baseTileSize)
 	fmt.Printf("Created %d tiles with buildBaseUSAGrid\n", len(tiles))
 
-	// Export tiles to GeoJSON
-	exportTilesToGeoJSON(tiles, "output_tiles.geojson", TopLeft, TopRight, BottomLeft, BottomRight)
-
 	return tiles
-}
-
-// saveTilesToDB converts GameTiles to ZonePG models and saves them to the database
-func saveTilesToDB(tiles []GameTile) {
-	db := pg.GetDB()
-
-	// Create a batch of zones to insert
-	var zones []model.ZonePG
-	now := time.Now()
-
-	for _, tile := range tiles {
-		// Generate a UUID if the tile ID is in format "tile_X_Y"
-		id := tile.ID
-		if _, err := fmt.Sscanf(tile.ID, "tile_%d_%d", new(int), new(int)); err == nil {
-			id = uuid.New().String()
-		}
-
-		topLeft := model.Float64Slice{tile.TopLeftLatLon[0], tile.TopLeftLatLon[1]}
-		topRight := model.Float64Slice{tile.TopRightLatLon[0], tile.TopRightLatLon[1]}
-		bottomLeft := model.Float64Slice{tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1]}
-		bottomRight := model.Float64Slice{tile.BottomRightLatLon[0], tile.BottomRightLatLon[1]}
-
-		// Create a ZonePG from the GameTile
-		zone := model.ZonePG{
-			ID:                id,
-			Name:              fmt.Sprintf("Zone %s", id),
-			TopLeftLatLon:     topLeft,
-			TopRightLatLon:    topRight,
-			BottomLeftLatLon:  bottomLeft,
-			BottomRightLatLon: bottomRight,
-			Effects:           []model.ZoneEffect{}, // Empty effects array
-			CreatedAt:         now,
-			UpdatedAt:         now,
-		}
-
-		zones = append(zones, zone)
-	}
-
-	// Insert in batches of 100 to avoid overwhelming the database
-	batchSize := 100
-	for i := 0; i < len(zones); i += batchSize {
-		end := i + batchSize
-		if end > len(zones) {
-			end = len(zones)
-		}
-
-		batch := zones[i:end]
-		result := db.Create(&batch)
-		if result.Error != nil {
-			log.Printf("Error saving batch %d-%d: %v", i, end, result.Error)
-		} else {
-			log.Printf("Saved batch %d-%d successfully", i, end)
-		}
-	}
-}
-
-// haversineDistance calculates the great-circle distance between two points in meters
-func haversineDistance(lat1, lon1, lat2, lon2 float64) float64 {
-	// Convert latitude and longitude from degrees to radians
-	lat1 = lat1 * math.Pi / 180
-	lon1 = lon1 * math.Pi / 180
-	lat2 = lat2 * math.Pi / 180
-	lon2 = lon2 * math.Pi / 180
-
-	// Haversine formula
-	dLat := lat2 - lat1
-	dLon := lon2 - lon1
-	a := math.Pow(math.Sin(dLat/2), 2) + math.Cos(lat1)*math.Cos(lat2)*math.Pow(math.Sin(dLon/2), 2)
-	c := 2 * math.Asin(math.Sqrt(a))
-
-	// Earth radius in meters
-	r := 6371000.0
-
-	// Calculate the distance
-	return c * r
-}
-
-// roundToKilometers rounds a value to the nearest kilometer
-func roundToKilometers(value float64) float64 {
-	return math.Round(value/1000*1000) / 1000
 }
 
 // buildFixeSizedGrid creates a grid of tiles with area of maxTileSize*maxTileSize sq. meters
@@ -302,34 +174,30 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 		feature := geojson.NewFeature(polygon)
 
 		// Calculate actual width and height in meters for this specific tile
-		topWidth := haversineDistance(
+		topWidth := util.HaversineDistance(
 			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
 			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
 		)
-		bottomWidth := haversineDistance(
+		bottomWidth := util.HaversineDistance(
 			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
 			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
 		)
-		leftHeight := haversineDistance(
+		leftHeight := util.HaversineDistance(
 			tile.TopLeftLatLon[0], tile.TopLeftLatLon[1],
 			tile.BottomLeftLatLon[0], tile.BottomLeftLatLon[1],
 		)
-		rightHeight := haversineDistance(
+		rightHeight := util.HaversineDistance(
 			tile.TopRightLatLon[0], tile.TopRightLatLon[1],
 			tile.BottomRightLatLon[0], tile.BottomRightLatLon[1],
 		)
 
-		// Average width and height
-		// avgWidth := (topWidth + bottomWidth) / 2
+		// Average height
 		avgHeight := (leftHeight + rightHeight) / 2
 
 		// Calculate area (approximate for trapezoid)
 		area := (topWidth + bottomWidth) * avgHeight / 2
 
 		// Add properties
-		// feature.Properties["id"] = tile.ID
-		// feature.Properties["width_kilometers"] = math.Round(avgWidth/1000*1000) / 1000
-		// feature.Properties["height_kilometers"] = math.Round(avgHeight/1000*1000) / 1000
 		feature.Properties["top_width_km"] = roundToKilometers(topWidth)
 		feature.Properties["bottom_width_km"] = roundToKilometers(bottomWidth)
 		feature.Properties["left_height_km"] = roundToKilometers(leftHeight)
@@ -341,28 +209,24 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 	}
 
 	// Add markers for the parent polygon corners
-	// Top Left marker
 	tlMarker := geojson.NewFeature(orb.Point{topLeft[1], topLeft[0]})
 	tlMarker.Properties["name"] = "Top Left"
 	tlMarker.Properties["type"] = "marker"
 	tlMarker.Properties["corner"] = "topLeft"
 	fc.Append(tlMarker)
 
-	// Top Right marker
 	trMarker := geojson.NewFeature(orb.Point{topRight[1], topRight[0]})
 	trMarker.Properties["name"] = "Top Right"
 	trMarker.Properties["type"] = "marker"
 	trMarker.Properties["corner"] = "topRight"
 	fc.Append(trMarker)
 
-	// Bottom Left marker
 	blMarker := geojson.NewFeature(orb.Point{bottomLeft[1], bottomLeft[0]})
 	blMarker.Properties["name"] = "Bottom Left"
 	blMarker.Properties["type"] = "marker"
 	blMarker.Properties["corner"] = "bottomLeft"
 	fc.Append(blMarker)
 
-	// Bottom Right marker
 	brMarker := geojson.NewFeature(orb.Point{bottomRight[1], bottomRight[0]})
 	brMarker.Properties["name"] = "Bottom Right"
 	brMarker.Properties["type"] = "marker"
@@ -382,4 +246,9 @@ func exportTilesToGeoJSON(tiles []GameTile, outputFile string, topLeft, topRight
 	}
 
 	log.Printf("Successfully exported tiles to %s", outputFile)
+}
+
+// roundToKilometers rounds a value to the nearest kilometer
+func roundToKilometers(value float64) float64 {
+	return math.Round(value/1000*1000) / 1000
 }
