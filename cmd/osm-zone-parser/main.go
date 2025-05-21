@@ -115,7 +115,7 @@ func runOSMLayerMode() {
 	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
 
 	// Find existing zones in the extended bounding box with 5km buffer
-	zones, err := processor.FindExistingZonesInObjectsBounds(5000.0)
+	zones, err := processor.GetZonesForProcessedBuildings(5000.0)
 	if err != nil {
 		log.Fatalf("Failed to find existing zones: %v", err)
 	}
@@ -158,6 +158,14 @@ func saveZonesToDB(zones []GameZone) {
 		bottomLeft := model.Float64Slice{zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1]}
 		bottomRight := model.Float64Slice{zone.BottomRightLatLon[0], zone.BottomRightLatLon[1]}
 
+		// Initialize empty building and water stats
+		emptyBuildingStats := model.BuildingStats{
+			BuildingTypes: make(map[string]int),
+			BuildingAreas: make(map[string]float64),
+		}
+
+		emptyWaterBodyStats := model.WaterBodyStats{}
+
 		// Create a ZonePG from the GameZone
 		zonePG := model.ZonePG{
 			ID:                id,
@@ -166,7 +174,8 @@ func saveZonesToDB(zones []GameZone) {
 			TopRightLatLon:    topRight,
 			BottomLeftLatLon:  bottomLeft,
 			BottomRightLatLon: bottomRight,
-			Effects:           []model.ZoneEffect{}, // Empty effects array
+			Buildings:         emptyBuildingStats,
+			WaterBodies:       emptyWaterBodyStats,
 			CreatedAt:         now,
 			UpdatedAt:         now,
 		}

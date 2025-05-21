@@ -114,6 +114,8 @@ func (s *ZoneService) loadAllZonesFromPG() ([]*model.Zone, error) {
 	zones := make([]*model.Zone, len(pgZones))
 	for i, pgZone := range pgZones {
 		zones[i] = model.ZoneFromPG(pgZone)
+		// Calculate effects based on zone properties
+		zones[i].CalculateEffects()
 	}
 
 	return zones, nil
@@ -261,6 +263,11 @@ func (s *ZoneService) GetEffectsForTarget(lat, lng float64) map[model.TargetPara
 	effects := make(map[model.TargetParamType]float32)
 
 	for _, zone := range zones {
+		// Ensure effects are calculated
+		if len(zone.Effects) == 0 {
+			zone.CalculateEffects()
+		}
+
 		for _, effect := range zone.Effects {
 			currentValue := effects[effect.ResourceType]
 

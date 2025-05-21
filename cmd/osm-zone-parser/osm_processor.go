@@ -9,13 +9,17 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"time"
 
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
+	"metalink/internal/util"
 
 	"github.com/dhconnelly/rtreego"
 	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/planar"
 	"github.com/qedus/osmpbf"
+	"gorm.io/gorm"
 )
 
 // OSMProcessor handles processing of OSM PBF files
@@ -230,9 +234,9 @@ func calculateCentroid(points []orb.Point) orb.Point {
 	return orb.Point{centroidX / n, centroidY / n}
 }
 
-// GetZonesInExtendedBounds finds all existing zones that intersect with the provided bounding box
-// extended by a buffer in meters. This implements the 5th point in the generation process.
-func GetZonesInExtendedBounds(minLat, minLng, maxLat, maxLng float64, bufferMeters float64) ([]*model.Zone, error) {
+// QueryZonesFromDB queries zones from the database that overlap with the given bounding box.
+// The bounding box can be expanded by providing a buffer distance in meters.
+func QueryZonesFromDB(minLat, minLng, maxLat, maxLng float64, bufferMeters float64) ([]*model.Zone, error) {
 	// Validate inputs
 	if minLat > maxLat || minLng > maxLng {
 		return nil, fmt.Errorf("invalid bounding box: min coordinates must be less than max coordinates")
@@ -263,13 +267,13 @@ func GetZonesInExtendedBounds(minLat, minLng, maxLat, maxLng float64, bufferMete
 	log.Printf("Extended bounding box: [%.6f, %.6f] to [%.6f, %.6f]",
 		extendedMinLat, extendedMinLng, extendedMaxLat, extendedMaxLng)
 
-	// Проверим, есть ли вообще зоны в базе данных
+	// Check if there are any zones in the database
 	db := pg.GetDB()
 	var count int64
 	db.Model(&model.ZonePG{}).Count(&count)
 	log.Printf("Total zones in database: %d", count)
 
-	// Для отладки, давайте получим несколько зон и посмотрим их структуру
+	// For debugging, let's get a few zones and check their structure
 	var debugZones []*model.ZonePG
 	db.Limit(1).Find(&debugZones)
 
@@ -315,13 +319,46 @@ func GetZonesInExtendedBounds(minLat, minLng, maxLat, maxLng float64, bufferMete
 	return zones, nil
 }
 
-// FindExistingZonesInObjectsBounds finds existing zones that intersect with the bounding box
-// of all processed OSM objects plus a buffer distance
-func (p *OSMProcessor) FindExistingZonesInObjectsBounds(bufferMeters float64) ([]*model.Zone, error) {
+// BoundingBox represents a geographic bounding box
+type BoundingBox struct {
+	minLat, minLng, maxLat, maxLng float64
+}
+
+// GetZonesForProcessedBuildings calculates the bounding box containing all processed buildings
+// and returns zones from the database that intersect with this bounding box plus a buffer.
+func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64) ([]*model.Zone, error) {
 	if len(p.Buildings) == 0 {
 		return nil, fmt.Errorf("no buildings processed yet")
 	}
 
+	// Calculate bounding box of all processed buildings
+	boundingBox := p.calculateBuildingsBoundingBox()
+
+	log.Printf("Buildings bounding box: [%.6f, %.6f] to [%.6f, %.6f]",
+		boundingBox.minLat, boundingBox.minLng, boundingBox.maxLat, boundingBox.maxLng)
+
+	// Query zones that intersect with the buildings' bounding box
+	zones, err := QueryZonesFromDB(
+		boundingBox.minLat,
+		boundingBox.minLng,
+		boundingBox.maxLat,
+		boundingBox.maxLng,
+		bufferMeters,
+	)
+	if err != nil {
+		log.Fatalf("Failed to query zones from database: %v", err)
+	}
+
+	err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
+	if err != nil {
+		log.Fatalf("Failed to export zones: %v", err)
+	}
+
+	return zones, nil
+}
+
+// calculateBuildingsBoundingBox calculates the bounding box containing all processed buildings
+func (p *OSMProcessor) calculateBuildingsBoundingBox() BoundingBox {
 	// Initialize min/max bounds with the first building's bounds
 	minLat := p.Buildings[0].CentroidLat
 	maxLat := minLat
@@ -350,18 +387,141 @@ func (p *OSMProcessor) FindExistingZonesInObjectsBounds(bufferMeters float64) ([
 		}
 	}
 
-	log.Printf("Object bounds: [%.6f, %.6f] to [%.6f, %.6f]", minLat, minLng, maxLat, maxLng)
+	return BoundingBox{
+		minLat: minLat,
+		minLng: minLng,
+		maxLat: maxLat,
+		maxLng: maxLng,
+	}
+}
 
-	// Find existing zones in the extended bounding box
-	zones, err := GetZonesInExtendedBounds(minLat, minLng, maxLat, maxLng, bufferMeters)
-	if err != nil {
-		log.Fatalf("Failed to get zones: %v", err)
+// UpdateZonesWithBuildingStats updates zones with building statistics
+func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
+	if len(p.Buildings) == 0 {
+		return fmt.Errorf("no buildings processed yet")
 	}
 
-	err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
-	if err != nil {
-		log.Fatalf("Failed to export zones: %v", err)
+	log.Printf("Updating %d zones with building statistics from %d buildings", len(zones), len(p.Buildings))
+
+	// Initialize building stats for all zones
+	for _, zone := range zones {
+		// Create polygon from corners if not already created
+		if zone.Polygon == nil {
+			ring := orb.Ring{
+				orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // [lon, lat]
+				orb.Point{zone.TopRightLatLon[1], zone.TopRightLatLon[0]},       // [lon, lat]
+				orb.Point{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}, // [lon, lat]
+				orb.Point{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]},   // [lon, lat]
+				orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // Close the ring
+			}
+			polygon := orb.Polygon{ring}
+			bound := polygon.Bound()
+			zone.Polygon = &polygon
+			zone.BoundingBox = &bound
+		}
+
+		// Initialize building stats with empty maps if not set
+		if zone.Buildings.BuildingTypes == nil {
+			zone.Buildings.BuildingTypes = make(map[string]int)
+		}
+		if zone.Buildings.BuildingAreas == nil {
+			zone.Buildings.BuildingAreas = make(map[string]float64)
+		}
 	}
 
-	return zones, nil
+	// Process each building
+	for _, building := range p.Buildings {
+		// Calculate approximate building area
+		buildingArea := planar.Area(building.Outline)
+
+		// Find which zones contain this building
+		point := orb.Point{building.CentroidLon, building.CentroidLat}
+
+		for _, zone := range zones {
+			// Check if building is in this zone
+			if util.PointInPolygon(*zone.Polygon, point) {
+				// Update building count by type
+				buildingType := building.Type
+				if buildingType == "" {
+					buildingType = "unknown"
+				}
+				zone.Buildings.BuildingTypes[buildingType]++
+				zone.Buildings.BuildingAreas[buildingType] += buildingArea
+				zone.Buildings.TotalCount++
+				zone.Buildings.TotalArea += buildingArea
+
+				// Update stats based on building height
+				if building.Levels <= 1 {
+					zone.Buildings.SingleFloorCount++
+					zone.Buildings.SingleFloorTotalArea += buildingArea
+				} else if building.Levels >= 2 && building.Levels <= 9 {
+					zone.Buildings.LowRiseCount++
+					zone.Buildings.LowRiseTotalArea += buildingArea
+				} else if building.Levels >= 10 && building.Levels <= 29 {
+					zone.Buildings.HighRiseCount++
+					zone.Buildings.HighRiseTotalArea += buildingArea
+				} else if building.Levels >= 30 {
+					zone.Buildings.SkyscraperCount++
+					zone.Buildings.SkyscraperTotalArea += buildingArea
+				}
+			}
+		}
+	}
+
+	// Log statistics
+	var totalBuildings int
+	for _, zone := range zones {
+		totalBuildings += zone.Buildings.TotalCount
+	}
+	log.Printf("Added %d buildings to %d zones", totalBuildings, len(zones))
+
+	// Save updated zones to database
+	return saveUpdatedZonesToDB(zones)
+}
+
+// saveUpdatedZonesToDB saves updated zones back to the database
+func saveUpdatedZonesToDB(zones []*model.Zone) error {
+	db := pg.GetDB()
+
+	// Process in batches
+	batchSize := 50
+	for i := 0; i < len(zones); i += batchSize {
+		end := i + batchSize
+		if end > len(zones) {
+			end = len(zones)
+		}
+
+		batch := zones[i:end]
+
+		// Convert to PG models and update
+		err := db.Transaction(func(tx *gorm.DB) error {
+			for _, zone := range batch {
+				pgZone := model.ZonePG{
+					ID:                zone.ID,
+					Name:              zone.Name,
+					TopLeftLatLon:     model.Float64Slice(zone.TopLeftLatLon),
+					TopRightLatLon:    model.Float64Slice(zone.TopRightLatLon),
+					BottomLeftLatLon:  model.Float64Slice(zone.BottomLeftLatLon),
+					BottomRightLatLon: model.Float64Slice(zone.BottomRightLatLon),
+					Buildings:         zone.Buildings,
+					WaterBodies:       zone.WaterBodies,
+					UpdatedAt:         time.Now(),
+				}
+
+				result := tx.Model(&model.ZonePG{}).Where("id = ?", zone.ID).Updates(pgZone)
+				if result.Error != nil {
+					return result.Error
+				}
+			}
+			return nil
+		})
+
+		if err != nil {
+			return fmt.Errorf("failed to update zones batch %d-%d: %w", i, end, err)
+		}
+
+		log.Printf("Updated zone batch %d-%d", i, end)
+	}
+
+	return nil
 }
