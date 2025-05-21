@@ -358,66 +358,10 @@ func (p *OSMProcessor) FindExistingZonesInObjectsBounds(bufferMeters float64) ([
 		log.Fatalf("Failed to get zones: %v", err)
 	}
 
-	err = ExportZonesToGeoJSON(zones, "output_zones.geojson")
+	err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
 	if err != nil {
 		log.Fatalf("Failed to export zones: %v", err)
 	}
 
 	return zones, nil
-}
-
-// ExportZonesToGeoJSON exports zones from database to a GeoJSON file
-func ExportZonesToGeoJSON(zones []*model.Zone, outputFile string) error {
-	// Convert model.Zone to GameZone
-	gameZones := make([]GameZone, len(zones))
-	for i, zone := range zones {
-		gameZones[i] = GameZone{
-			ID:                zone.ID,
-			TopLeftLatLon:     [2]float64{zone.TopLeftLatLon[0], zone.TopLeftLatLon[1]},
-			TopRightLatLon:    [2]float64{zone.TopRightLatLon[0], zone.TopRightLatLon[1]},
-			BottomLeftLatLon:  [2]float64{zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1]},
-			BottomRightLatLon: [2]float64{zone.BottomRightLatLon[0], zone.BottomRightLatLon[1]},
-		}
-	}
-
-	// Calculate bounding box from all zones
-	var minLat, maxLat, minLon, maxLon float64
-	first := true
-	for _, zone := range zones {
-		for _, point := range [][]float64{
-			zone.TopLeftLatLon,
-			zone.TopRightLatLon,
-			zone.BottomLeftLatLon,
-			zone.BottomRightLatLon,
-		} {
-			if first {
-				minLat, maxLat = point[0], point[0]
-				minLon, maxLon = point[1], point[1]
-				first = false
-			} else {
-				if point[0] < minLat {
-					minLat = point[0]
-				}
-				if point[0] > maxLat {
-					maxLat = point[0]
-				}
-				if point[1] < minLon {
-					minLon = point[1]
-				}
-				if point[1] > maxLon {
-					maxLon = point[1]
-				}
-			}
-		}
-	}
-
-	// Create boundary points
-	topLeft := [2]float64{maxLat, minLon}
-	topRight := [2]float64{maxLat, maxLon}
-	bottomLeft := [2]float64{minLat, minLon}
-	bottomRight := [2]float64{minLat, maxLon}
-
-	// Call the existing export function
-	exportZonesToGeoJSON(gameZones, outputFile, topLeft, topRight, bottomLeft, bottomRight)
-	return nil
 }
