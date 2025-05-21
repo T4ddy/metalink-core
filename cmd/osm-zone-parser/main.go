@@ -113,6 +113,17 @@ func runOSMLayerMode() {
 	}
 
 	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
+
+	// Find existing zones in the extended bounding box with 5km buffer
+	zones, err := processor.FindExistingZonesInObjectsBounds(5000.0)
+	if err != nil {
+		log.Fatalf("Failed to find existing zones: %v", err)
+	}
+
+	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
+
+	// Now you have the zones that need to be processed in the next steps
+	// You can pass these zones to the next function in your workflow
 }
 
 // initDB initializes the database connection and runs migrations
