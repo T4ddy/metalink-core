@@ -22,6 +22,7 @@ var (
 	baseZoneSize      float64
 	minZoneSize       float64
 	exportBaseMapJSON bool
+	skipDB            bool
 )
 
 // RunMode represents different operation modes
@@ -48,6 +49,7 @@ func init() {
 	flag.Float64Var(&baseZoneSize, "base-zone-size", 100000.0, "Base zone size in meters for USA map (default: 100km)")
 	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
 	flag.BoolVar(&exportBaseMapJSON, "export-json", true, "Export base USA map to GeoJSON file")
+	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
 }
 
 func main() {
@@ -59,9 +61,11 @@ func main() {
 		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer")
 	}
 
-	// Initialize database
-	initDB()
-	defer pg.Close()
+	// Initialize database only if not skipping DB operations
+	if !skipDB {
+		initDB()
+		defer pg.Close()
+	}
 
 	// Execute the appropriate function based on run mode
 	switch runMode {
@@ -81,10 +85,13 @@ func runBaseInitMode() {
 	// Generate zones
 	zonesUSA := buildBaseUSAGrid()
 
-	// Save zones to database
-	saveZonesToDB(zonesUSA)
-
-	log.Printf("Successfully saved %d zones to database", len(zonesUSA))
+	// Save zones to database only if not skipping DB operations
+	if !skipDB {
+		saveZonesToDB(zonesUSA)
+		log.Printf("Successfully saved %d zones to database", len(zonesUSA))
+	} else {
+		log.Printf("Skipping database operations. Generated %d zones", len(zonesUSA))
+	}
 
 	// Export zones to GeoJSON if enabled
 	if exportBaseMapJSON {
@@ -106,6 +113,10 @@ func runOSMLayerMode() {
 		log.Fatalf("OSM file not found: %s", osmFilePath)
 	}
 
+	if skipDB {
+		log.Println("Database operations are disabled. Will only process OSM file without updating zones.")
+	}
+
 	// Process OSM data
 	processor := NewOSMProcessor()
 	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
@@ -115,14 +126,14 @@ func runOSMLayerMode() {
 	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
 
 	// Find existing zones in the extended bounding box with 5km buffer
-	zones, err := processor.GetZonesForProcessedBuildings(5000.0)
+	zones, err := processor.GetZonesForProcessedBuildings(5000.0, skipDB)
 	if err != nil {
 		log.Fatalf("Failed to find existing zones: %v", err)
 	}
 
 	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
 
-	err = processor.UpdateZonesWithBuildingStats(zones)
+	err = processor.UpdateZonesWithBuildingStats(zones, skipDB)
 	if err != nil {
 		log.Fatalf("Failed to update zones with building stats: %v", err)
 	}

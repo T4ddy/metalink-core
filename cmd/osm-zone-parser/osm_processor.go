@@ -327,7 +327,7 @@ type BoundingBox struct {
 
 // GetZonesForProcessedBuildings calculates the bounding box containing all processed buildings
 // and returns zones from the database that intersect with this bounding box plus a buffer.
-func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64) ([]*model.Zone, error) {
+func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64, skipDB bool) ([]*model.Zone, error) {
 	if len(p.Buildings) == 0 {
 		return nil, fmt.Errorf("no buildings processed yet")
 	}
@@ -339,23 +339,39 @@ func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64) ([]*m
 		boundingBox.minLat, boundingBox.minLng, boundingBox.maxLat, boundingBox.maxLng)
 
 	// Query zones that intersect with the buildings' bounding box
-	zones, err := QueryZonesFromDB(
-		boundingBox.minLat,
-		boundingBox.minLng,
-		boundingBox.maxLat,
-		boundingBox.maxLng,
-		bufferMeters,
-	)
-	if err != nil {
-		log.Fatalf("Failed to query zones from database: %v", err)
-	}
+	if !skipDB {
+		zones, err := QueryZonesFromDB(
+			boundingBox.minLat,
+			boundingBox.minLng,
+			boundingBox.maxLat,
+			boundingBox.maxLng,
+			bufferMeters,
+		)
+		if err != nil {
+			log.Fatalf("Failed to query zones from database: %v", err)
+		}
 
-	err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
-	if err != nil {
-		log.Fatalf("Failed to export zones: %v", err)
-	}
+		err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
+		if err != nil {
+			log.Fatalf("Failed to export zones: %v", err)
+		}
 
-	return zones, nil
+		return zones, nil
+	} else {
+
+		zones := make([]*model.Zone, 0)
+
+		// Create 1 test zone with boundingBox as borders
+		zones = append(zones, &model.Zone{
+			ID:                "ONEZONE",
+			Name:              "ONEZONE",
+			TopLeftLatLon:     []float64{boundingBox.minLat, boundingBox.minLng},
+			TopRightLatLon:    []float64{boundingBox.minLat, boundingBox.maxLng},
+			BottomLeftLatLon:  []float64{boundingBox.maxLat, boundingBox.minLng},
+			BottomRightLatLon: []float64{boundingBox.maxLat, boundingBox.maxLng},
+		})
+		return zones, nil
+	}
 }
 
 // calculateBuildingsBoundingBox calculates the bounding box containing all processed buildings
@@ -420,7 +436,7 @@ func (z *ZoneSpatial) Bounds() rtreego.Rect {
 }
 
 // UpdateZonesWithBuildingStats updates zones with building statistics using spatial indexing
-func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
+func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
@@ -536,16 +552,20 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
 	log.Printf("Created test zone with %d buildings", testZone.Buildings.TotalCount)
 
 	// Save updated zones to database
-	// err := saveUpdatedZonesToDB(zones)
-	// if err != nil {
-	// 	return err
-	// }
+	if !skipDB {
+		err := saveUpdatedZonesToDB(zones)
+		if err != nil {
+			return err
+		}
+	}
 
 	// Save test zone separately
-	// err = p.saveTestZoneToDB(testZone)
-	// if err != nil {
-	// 	return err
-	// }
+	if !skipDB {
+		err := p.saveTestZoneToDB(testZone)
+		if err != nil {
+			return err
+		}
+	}
 
 	err := p.SaveTestZoneToJSON(testZone, "test_zone.json")
 	if err != nil {
