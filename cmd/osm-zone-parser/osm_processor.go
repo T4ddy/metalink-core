@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -17,7 +18,7 @@ import (
 
 	"github.com/dhconnelly/rtreego"
 	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/planar"
+	"github.com/paulmach/orb/geo"
 	"github.com/qedus/osmpbf"
 	"gorm.io/gorm"
 )
@@ -395,7 +396,30 @@ func (p *OSMProcessor) calculateBuildingsBoundingBox() BoundingBox {
 	}
 }
 
-// UpdateZonesWithBuildingStats updates zones with building statistics
+// ZoneSpatial represents a zone with its spatial information for R-tree indexing
+type ZoneSpatial struct {
+	Zone        *model.Zone
+	Polygon     *orb.Polygon
+	BoundingBox *orb.Bound
+}
+
+// Bounds implements the rtreego.Spatial interface
+func (z *ZoneSpatial) Bounds() rtreego.Rect {
+	// Convert orb.Bound to rtreego.Rect format
+	minX, minY := z.BoundingBox.Min[0], z.BoundingBox.Min[1]
+	maxX, maxY := z.BoundingBox.Max[0], z.BoundingBox.Max[1]
+
+	// Create a new rectangle with the bottom-left corner at (minX, minY)
+	// and with width and height dimensions
+	rect, _ := rtreego.NewRect(
+		rtreego.Point{minX, minY},
+		[]float64{maxX - minX, maxY - minY},
+	)
+
+	return rect
+}
+
+// UpdateZonesWithBuildingStats updates zones with building statistics using spatial indexing
 func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
@@ -403,7 +427,12 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
 
 	log.Printf("Updating %d zones with building statistics from %d buildings", len(zones), len(p.Buildings))
 
-	// Initialize building stats for all zones
+	// Create spatial index for zones to optimize lookups
+	zoneIndex := rtreego.NewTree(2, 25, 50) // 2D index with min 25, max 50 entries per node
+
+	// First, prepare all zones and add them to the spatial index
+	zoneSpatials := make(map[string]*ZoneSpatial, len(zones))
+
 	for _, zone := range zones {
 		// Create polygon from corners if not already created
 		if zone.Polygon == nil {
@@ -427,19 +456,49 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
 		if zone.Buildings.BuildingAreas == nil {
 			zone.Buildings.BuildingAreas = make(map[string]float64)
 		}
+
+		// Create a spatial object for this zone
+		zoneSpatial := &ZoneSpatial{
+			Zone:        zone,
+			Polygon:     zone.Polygon,
+			BoundingBox: zone.BoundingBox,
+		}
+
+		// Add to index
+		zoneIndex.Insert(zoneSpatial)
+		zoneSpatials[zone.ID] = zoneSpatial
 	}
 
+	log.Printf("Created spatial index for %d zones", len(zones))
+
+	// Create test zone for all buildings
+	testZone := p.createTestZone()
+
 	// Process each building
+	buildingCount := 0
 	for _, building := range p.Buildings {
 		// Calculate approximate building area
-		buildingArea := planar.Area(building.Outline)
+		buildingArea := geo.Area(building.Outline) * float64(building.Levels)
 
-		// Find which zones contain this building
+		// Create a point for building centroid
 		point := orb.Point{building.CentroidLon, building.CentroidLat}
 
-		for _, zone := range zones {
-			// Check if building is in this zone
-			if util.PointInPolygon(*zone.Polygon, point) {
+		// Create a small search rectangle around the centroid
+		searchRect, _ := rtreego.NewRect(
+			rtreego.Point{building.CentroidLon, building.CentroidLat},
+			[]float64{0.0001, 0.0001}, // Small search radius
+		)
+
+		// Find candidate zones using the spatial index
+		spatialResults := zoneIndex.SearchIntersect(searchRect)
+
+		// Check which zones actually contain this building's centroid
+		for _, item := range spatialResults {
+			zoneSpatial := item.(*ZoneSpatial)
+			zone := zoneSpatial.Zone
+
+			// Perform precise point-in-polygon check
+			if util.PointInPolygon(*zoneSpatial.Polygon, point) {
 				// Update building count by type
 				buildingType := building.Type
 				if buildingType == "" {
@@ -464,19 +523,36 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone) error {
 					zone.Buildings.SkyscraperCount++
 					zone.Buildings.SkyscraperTotalArea += buildingArea
 				}
+
+				buildingCount++
 			}
 		}
+
+		// Add building to test zone
+		p.addBuildingToTestZone(building, buildingArea, testZone)
 	}
 
-	// Log statistics
-	var totalBuildings int
-	for _, zone := range zones {
-		totalBuildings += zone.Buildings.TotalCount
-	}
-	log.Printf("Added %d buildings to %d zones", totalBuildings, len(zones))
+	log.Printf("Added %d buildings to %d zones using spatial indexing", buildingCount, len(zones))
+	log.Printf("Created test zone with %d buildings", testZone.Buildings.TotalCount)
 
 	// Save updated zones to database
-	return saveUpdatedZonesToDB(zones)
+	// err := saveUpdatedZonesToDB(zones)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// Save test zone separately
+	// err = p.saveTestZoneToDB(testZone)
+	// if err != nil {
+	// 	return err
+	// }
+
+	err := p.SaveTestZoneToJSON(testZone, "test_zone.json")
+	if err != nil {
+		log.Printf("Warning: Failed to save test zone to JSON: %v", err)
+	}
+
+	return nil
 }
 
 // saveUpdatedZonesToDB saves updated zones back to the database
@@ -523,5 +599,180 @@ func saveUpdatedZonesToDB(zones []*model.Zone) error {
 		log.Printf("Updated zone batch %d-%d", i, end)
 	}
 
+	return nil
+}
+
+// TEST ZONE
+
+// createTestZone creates a test zone that will contain all buildings
+func (p *OSMProcessor) createTestZone() *model.Zone {
+	return &model.Zone{
+		ID:   "TESTID",
+		Name: "Test Zone with All Buildings",
+		// Используем координаты, охватывающие все здания
+		TopLeftLatLon:     []float64{90, -180},
+		TopRightLatLon:    []float64{90, 180},
+		BottomLeftLatLon:  []float64{-90, -180},
+		BottomRightLatLon: []float64{-90, 180},
+		Buildings: model.BuildingStats{
+			BuildingTypes: make(map[string]int),
+			BuildingAreas: make(map[string]float64),
+		},
+	}
+}
+
+// addBuildingToTestZone adds building statistics to the test zone
+func (p *OSMProcessor) addBuildingToTestZone(building *model.Building, buildingArea float64, testZone *model.Zone) {
+	// Update building count by type
+	buildingType := building.Type
+	if buildingType == "" {
+		buildingType = "unknown"
+	}
+	testZone.Buildings.BuildingTypes[buildingType]++
+	testZone.Buildings.BuildingAreas[buildingType] += buildingArea
+	testZone.Buildings.TotalCount++
+	testZone.Buildings.TotalArea += buildingArea
+
+	// Update stats based on building height
+	if building.Levels <= 1 {
+		testZone.Buildings.SingleFloorCount++
+		testZone.Buildings.SingleFloorTotalArea += buildingArea
+	} else if building.Levels >= 2 && building.Levels <= 9 {
+		testZone.Buildings.LowRiseCount++
+		testZone.Buildings.LowRiseTotalArea += buildingArea
+	} else if building.Levels >= 10 && building.Levels <= 29 {
+		testZone.Buildings.HighRiseCount++
+		testZone.Buildings.HighRiseTotalArea += buildingArea
+	} else if building.Levels >= 30 {
+		testZone.Buildings.SkyscraperCount++
+		testZone.Buildings.SkyscraperTotalArea += buildingArea
+	}
+}
+
+// saveTestZoneToDB saves the test zone to database using upsert
+func (p *OSMProcessor) saveTestZoneToDB(testZone *model.Zone) error {
+	db := pg.GetDB()
+	now := time.Now()
+
+	pgZone := model.ZonePG{
+		ID:                testZone.ID,
+		Name:              testZone.Name,
+		TopLeftLatLon:     model.Float64Slice(testZone.TopLeftLatLon),
+		TopRightLatLon:    model.Float64Slice(testZone.TopRightLatLon),
+		BottomLeftLatLon:  model.Float64Slice(testZone.BottomLeftLatLon),
+		BottomRightLatLon: model.Float64Slice(testZone.BottomRightLatLon),
+		Buildings:         testZone.Buildings,
+		WaterBodies:       testZone.WaterBodies,
+		UpdatedAt:         now,
+		CreatedAt:         now,
+	}
+
+	// Используем UPSERT (ON CONFLICT DO UPDATE)
+	query := `
+		INSERT INTO zones (
+			id, name, top_left_lat_lon, top_right_lat_lon, 
+			bottom_left_lat_lon, bottom_right_lat_lon, 
+			buildings, water_bodies, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET
+			name = EXCLUDED.name,
+			top_left_lat_lon = EXCLUDED.top_left_lat_lon,
+			top_right_lat_lon = EXCLUDED.top_right_lat_lon,
+			bottom_left_lat_lon = EXCLUDED.bottom_left_lat_lon,
+			bottom_right_lat_lon = EXCLUDED.bottom_right_lat_lon,
+			buildings = EXCLUDED.buildings,
+			water_bodies = EXCLUDED.water_bodies,
+			updated_at = EXCLUDED.updated_at
+	`
+
+	buildingsJSON, err := json.Marshal(pgZone.Buildings)
+	if err != nil {
+		return fmt.Errorf("failed to marshal buildings JSON: %w", err)
+	}
+
+	waterBodiesJSON, err := json.Marshal(pgZone.WaterBodies)
+	if err != nil {
+		return fmt.Errorf("failed to marshal water bodies JSON: %w", err)
+	}
+
+	topLeftJSON, err := json.Marshal(pgZone.TopLeftLatLon)
+	if err != nil {
+		return fmt.Errorf("failed to marshal TopLeftLatLon JSON: %w", err)
+	}
+
+	topRightJSON, err := json.Marshal(pgZone.TopRightLatLon)
+	if err != nil {
+		return fmt.Errorf("failed to marshal TopRightLatLon JSON: %w", err)
+	}
+
+	bottomLeftJSON, err := json.Marshal(pgZone.BottomLeftLatLon)
+	if err != nil {
+		return fmt.Errorf("failed to marshal BottomLeftLatLon JSON: %w", err)
+	}
+
+	bottomRightJSON, err := json.Marshal(pgZone.BottomRightLatLon)
+	if err != nil {
+		return fmt.Errorf("failed to marshal BottomRightLatLon JSON: %w", err)
+	}
+
+	result := db.Exec(
+		query,
+		pgZone.ID,
+		pgZone.Name,
+		topLeftJSON,
+		topRightJSON,
+		bottomLeftJSON,
+		bottomRightJSON,
+		buildingsJSON,
+		waterBodiesJSON,
+		pgZone.CreatedAt,
+		pgZone.UpdatedAt,
+	)
+
+	if result.Error != nil {
+		return fmt.Errorf("failed to upsert test zone: %w", result.Error)
+	}
+
+	log.Printf("Saved test zone with ID 'TESTID' to database")
+	return nil
+}
+
+// SaveTestZoneToJSON сохраняет тестовую зону в JSON файл
+func (p *OSMProcessor) SaveTestZoneToJSON(testZone *model.Zone, outputFile string) error {
+	log.Printf("Saving test zone to JSON file: %s", outputFile)
+
+	// Convert model.Zone to GameZone for consistency with existing export functions
+	gameZone := GameZone{
+		ID:                testZone.ID,
+		TopLeftLatLon:     [2]float64{testZone.TopLeftLatLon[0], testZone.TopLeftLatLon[1]},
+		TopRightLatLon:    [2]float64{testZone.TopRightLatLon[0], testZone.TopRightLatLon[1]},
+		BottomLeftLatLon:  [2]float64{testZone.BottomLeftLatLon[0], testZone.BottomLeftLatLon[1]},
+		BottomRightLatLon: [2]float64{testZone.BottomRightLatLon[0], testZone.BottomRightLatLon[1]},
+	}
+
+	// Create a structure to hold both zone geometry and building statistics
+	type TestZoneExport struct {
+		Zone      GameZone            `json:"zone"`
+		Buildings model.BuildingStats `json:"buildings"`
+	}
+
+	export := TestZoneExport{
+		Zone:      gameZone,
+		Buildings: testZone.Buildings,
+	}
+
+	// Marshal the export structure to JSON with indentation
+	jsonData, err := json.MarshalIndent(export, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal test zone to JSON: %w", err)
+	}
+
+	// Write to file
+	err = os.WriteFile(outputFile, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write test zone JSON file: %w", err)
+	}
+
+	log.Printf("Successfully saved test zone to %s", outputFile)
 	return nil
 }

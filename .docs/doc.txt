@@ -47,3 +47,9 @@
 Повторять пункты 3 - 7 при накатывании новых данных на существующие тайлы. В пункте 3 можно
 предварительно фильтровать объекты нужных типов (через osmfilter/osmium tags-filter) 
 до этапа построения spatial-индекса, чтобы сократить издержки.
+
+================================================
+
+osmium tags-filter texas-latest.osm.pbf nwr/building -o buildings.osm.pbf
+
+osmium tags-filter texas-latest.osm.pbf w/building=house,apartments -o houses.osm.pbf

@@ -122,8 +122,12 @@ func runOSMLayerMode() {
 
 	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
 
-	// Now you have the zones that need to be processed in the next steps
-	// You can pass these zones to the next function in your workflow
+	err = processor.UpdateZonesWithBuildingStats(zones)
+	if err != nil {
+		log.Fatalf("Failed to update zones with building stats: %v", err)
+	}
+
+	log.Printf("Successfully updated %d zones with building statistics", len(zones))
 }
 
 // initDB initializes the database connection and runs migrations
