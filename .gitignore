@@ -58,3 +58,4 @@ dump.rdb
 # Temporary files
 /tmp/
 /temp/
+/test_data/
