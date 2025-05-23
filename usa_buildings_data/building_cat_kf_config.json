@@ -1,0 +1,271 @@
+{
+  "building_effects_config": {
+    "residential": {
+      "radiusKf": 25,
+      "effects": {
+        "sleep_quality": 20,
+        "food_search": 10,
+        "water_search": 8
+      }
+    },
+    "commercial_retail": {
+      "radiusKf": 40,
+      "effects": {
+        "food_search": 25,
+        "medicine_search": 15,
+        "water_search": 12
+      }
+    },
+    "industrial_manufacturing": {
+      "radiusKf": 60,
+      "effects": {
+        "air_quality": 30,
+        "stamina_consumption": 25,
+        "medicine_search": 5
+      }
+    },
+    "agricultural_farming": {
+      "radiusKf": 50,
+      "effects": {
+        "food_search": 35,
+        "water_search": 20,
+        "air_quality": -10
+      }
+    },
+    "religious_worship": {
+      "radiusKf": 30,
+      "effects": {
+        "sleep_quality": 25,
+        "food_search": 8,
+        "medicine_search": 5
+      }
+    },
+    "educational": {
+      "radiusKf": 35,
+      "effects": {
+        "medicine_search": 12,
+        "food_search": 8,
+        "sleep_quality": 10
+      }
+    },
+    "healthcare_medical": {
+      "radiusKf": 45,
+      "effects": {
+        "medicine_search": 40,
+        "water_search": 15,
+        "air_quality": 5
+      }
+    },
+    "government_civic": {
+      "radiusKf": 40,
+      "effects": {
+        "food_search": 15,
+        "water_search": 15,
+        "medicine_search": 15,
+        "sleep_quality": 10
+      }
+    },
+    "police": {
+      "radiusKf": 35,
+      "effects": {
+        "medicine_search": 20,
+        "food_search": 10,
+        "stamina_consumption": 15
+      }
+    },
+    "military_security": {
+      "radiusKf": 50,
+      "effects": {
+        "medicine_search": 25,
+        "food_search": 20,
+        "air_quality": 20,
+        "stamina_consumption": 20
+      }
+    },
+    "transportation_automotive": {
+      "radiusKf": 30,
+      "effects": {
+        "air_quality": 25,
+        "stamina_consumption": 15,
+        "food_search": 5
+      }
+    },
+    "transportation_aviation": {
+      "radiusKf": 80,
+      "effects": {
+        "air_quality": 35,
+        "stamina_consumption": 25,
+        "food_search": 8
+      }
+    },
+    "transportation_rail": {
+      "radiusKf": 40,
+      "effects": {
+        "air_quality": 20,
+        "stamina_consumption": 12,
+        "food_search": 6
+      }
+    },
+    "transportation_water": {
+      "radiusKf": 25,
+      "effects": {
+        "water_search": 15,
+        "food_search": 8,
+        "air_quality": 10
+      }
+    },
+    "hospitality_accommodation": {
+      "radiusKf": 30,
+      "effects": {
+        "sleep_quality": 30,
+        "food_search": 12,
+        "water_search": 10
+      }
+    },
+    "entertainment_venues": {
+      "radiusKf": 35,
+      "effects": {
+        "food_search": 15,
+        "sleep_quality": 8,
+        "stamina_consumption": 5
+      }
+    },
+    "sports_facilities": {
+      "radiusKf": 40,
+      "effects": {
+        "stamina_consumption": 20,
+        "medicine_search": 8,
+        "water_search": 12
+      }
+    },
+    "recreational_outdoor": {
+      "radiusKf": 30,
+      "effects": {
+        "air_quality": -15,
+        "stamina_consumption": -10,
+        "sleep_quality": 15
+      }
+    },
+    "power_generation": {
+      "radiusKf": 70,
+      "effects": {
+        "air_quality": 40,
+        "stamina_consumption": 30,
+        "medicine_search": 5
+      }
+    },
+    "water_infrastructure": {
+      "radiusKf": 40,
+      "effects": {
+        "water_search": 35,
+        "air_quality": 5
+      }
+    },
+    "computers": {
+      "radiusKf": 15,
+      "effects": {
+        "medicine_search": 3,
+        "air_quality": 5
+      }
+    },
+    "utilities_infrastructure": {
+      "radiusKf": 50,
+      "effects": {
+        "air_quality": 25,
+        "stamina_consumption": 15
+      }
+    },
+    "storage_warehousing": {
+      "radiusKf": 45,
+      "effects": {
+        "food_search": 20,
+        "water_search": 15,
+        "medicine_search": 10
+      }
+    },
+    "cultural_historic": {
+      "radiusKf": 25,
+      "effects": {
+        "sleep_quality": 15,
+        "food_search": 5,
+        "medicine_search": 3
+      }
+    },
+    "food_services": {
+      "radiusKf": 35,
+      "effects": {
+        "food_search": 30,
+        "water_search": 10,
+        "medicine_search": 5
+      }
+    },
+    "construction_temporary": {
+      "radiusKf": 40,
+      "effects": {
+        "air_quality": 30,
+        "stamina_consumption": 25,
+        "sleep_quality": -10
+      }
+    },
+    "specialized_buildings": {
+      "radiusKf": 30,
+      "effects": {
+        "medicine_search": 8,
+        "sleep_quality": 5
+      }
+    },
+    "mobile_temporary": {
+      "radiusKf": 20,
+      "effects": {
+        "sleep_quality": -5,
+        "food_search": 8,
+        "air_quality": 10
+      }
+    },
+    "sanitation_facilities": {
+      "radiusKf": 25,
+      "effects": {
+        "water_search": 20,
+        "air_quality": 20,
+        "medicine_search": 5
+      }
+    },
+    "maintenance_service": {
+      "radiusKf": 30,
+      "effects": {
+        "air_quality": 15,
+        "stamina_consumption": 10,
+        "food_search": 5
+      }
+    },
+    "abandoned_disused": {
+      "radiusKf": 35,
+      "effects": {
+        "air_quality": 25,
+        "sleep_quality": -15,
+        "stamina_consumption": 15
+      }
+    },
+    "roof_structures": {
+      "radiusKf": 10,
+      "effects": {
+        "sleep_quality": -5
+      }
+    },
+    "transportation_general": {
+      "radiusKf": 35,
+      "effects": {
+        "air_quality": 20,
+        "stamina_consumption": 15
+      }
+    },
+    "empty_no_loot": {
+      "radiusKf": 5,
+      "effects": {}
+    },
+    "other": {
+      "radiusKf": 5,
+      "effects": {}
+    }
+  }
+}
