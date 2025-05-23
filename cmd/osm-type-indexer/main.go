@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+// TODO: сделай мапу похожих типов зданий. Конфиг для веса эффектов должен быть в джейсоне
+
 // ZoneData represents the structure of the JSON file with zone data
 type ZoneData struct {
 	Zone      ZoneGeometry  `json:"zone"`
@@ -51,8 +53,13 @@ func main() {
 	// Define command line flags
 	inputFiles := flag.String("input", "", "Comma-separated list of input JSON files")
 	outputFile := flag.String("output", "test_data/merged_buildings.json", "Output JSON file")
-	minOccurrences := flag.Int("min-occurrences", 1, "Minimum number of occurrences to keep a building type")
+	minOccurrences := flag.Int("min-occurrences", 2, "Minimum number of occurrences to keep a building type")
 	minAreaInt := flag.Int("min-area", 1000, "Minimum area in square meters to keep a building type")
+
+	// Additional filters (enabled by default)
+	filterShortNames := flag.Bool("filter-short-names", true, "Filter out building types with 1-2 character names")
+	filterSemicolon := flag.Bool("filter-semicolon", true, "Filter out building types with semicolon in name")
+	filterLongNames := flag.Bool("filter-long-names", true, "Filter out building types with names longer than 50 characters")
 
 	flag.Parse()
 
@@ -64,7 +71,7 @@ func main() {
 		log.Fatal("No input files specified. Use --input flag with comma-separated list of files")
 	}
 
-	// Parse the list of input files using strings.Split instead of filepath.SplitList
+	// Parse the list of input files using strings.Split
 	files := strings.Split(*inputFiles, ",")
 	if len(files) == 0 {
 		log.Fatal("No input files found in the provided list")
@@ -72,6 +79,10 @@ func main() {
 
 	log.Printf("Processing %d input files", len(files))
 	log.Printf("Min occurrences: %d, Min area: %.2f m²", *minOccurrences, minArea)
+	log.Printf("Filter short names (1-2 chars): %v", *filterShortNames)
+	log.Printf("Filter semicolon names: %v", *filterSemicolon)
+	log.Printf("Filter long names (>50 chars): %v", *filterLongNames)
+	log.Printf("Filter logic: Remove if count < min-occurrences AND area < min-area")
 
 	// Create an object to store merged data
 	mergedStats := MergedStats{
@@ -112,15 +123,48 @@ func main() {
 
 	log.Printf("Before filtering: %d building types", len(mergedStats.BuildingTypes))
 
-	// Filter out rare and small building types
+	// Apply filters
 	filteredTypes := make(map[string]int)
 	filteredAreas := make(map[string]float64)
+	removedCount := 0
+	removedByShortName := 0
+	removedBySemicolon := 0
+	removedByLongName := 0
+	removedByCountAndArea := 0
 
 	for buildingType, count := range mergedStats.BuildingTypes {
 		area := mergedStats.BuildingAreas[buildingType]
+		shouldRemove := false
 
-		// Check filtering conditions
-		if count >= *minOccurrences && area >= minArea {
+		// Check short name filter
+		if *filterShortNames && len(buildingType) <= 2 {
+			shouldRemove = true
+			removedByShortName++
+		}
+
+		// Check semicolon filter
+		if *filterSemicolon && strings.Contains(buildingType, ";") {
+			shouldRemove = true
+			removedBySemicolon++
+		}
+
+		// Check long name filter
+		if *filterLongNames && len(buildingType) > 50 {
+			shouldRemove = true
+			removedByLongName++
+		}
+
+		// Check count and area filter
+		if count < *minOccurrences && area < minArea {
+			shouldRemove = true
+			removedByCountAndArea++
+		}
+
+		if shouldRemove {
+			removedCount++
+			continue // Skip this type, don't add to filtered maps
+		} else {
+			// Keep this type
 			filteredTypes[buildingType] = count
 			filteredAreas[buildingType] = area
 		}
@@ -131,6 +175,11 @@ func main() {
 	mergedStats.BuildingAreas = filteredAreas
 
 	log.Printf("After filtering: %d building types", len(mergedStats.BuildingTypes))
+	log.Printf("Total removed: %d building types", removedCount)
+	log.Printf("  - Removed by short name filter: %d", removedByShortName)
+	log.Printf("  - Removed by semicolon filter: %d", removedBySemicolon)
+	log.Printf("  - Removed by long name filter: %d", removedByLongName)
+	log.Printf("  - Removed by count+area filter: %d", removedByCountAndArea)
 
 	// Save the result to a JSON file
 	jsonData, err := json.MarshalIndent(mergedStats, "", "  ")
