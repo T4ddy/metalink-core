@@ -16,15 +16,16 @@ import (
 
 // Command line flags
 var (
-	dbURL             string
-	runMode           int
-	osmFilePath       string
-	baseZoneSize      float64
-	minZoneSize       float64
-	exportBaseMapJSON bool
-	skipDB            bool
-	clearZones        bool
-	exportZonesJSON   bool
+	dbURL               string
+	runMode             int
+	osmFilePath         string
+	baseZoneSize        float64
+	minZoneSize         float64
+	exportBaseMapJSON   bool
+	skipDB              bool
+	clearZones          bool
+	exportZonesJSON     bool
+	exportBuildingsJSON bool
 
 	// Type indexer specific flags
 	inputFiles       string
@@ -64,6 +65,7 @@ func init() {
 	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
 	flag.BoolVar(&clearZones, "clear-zones", false, "Clear all zones from database before saving updated ones (test mode)")
 	flag.BoolVar(&exportZonesJSON, "export-zones-json", false, "Export processed zones with building stats to GeoJSON file")
+	flag.BoolVar(&exportBuildingsJSON, "export-buildings-json", false, "Export buildings as squares to GeoJSON file")
 
 	// Type indexer specific flags
 	flag.StringVar(&inputFiles, "input", "", "Comma-separated list of input JSON files")

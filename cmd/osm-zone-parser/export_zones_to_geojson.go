@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/paulmach/orb"
+	"github.com/paulmach/orb/geo"
 	"github.com/paulmach/orb/geojson"
 )
 
@@ -451,4 +452,100 @@ func exportZonesToGeoJSON(zones []GameZone, outputFile string, topLeft, topRight
 	}
 
 	log.Printf("Successfully exported zones to %s", outputFile)
+}
+
+// exportBuildingsToGeoJSON exports building approximations as squares to a GeoJSON file
+// skipCount: 0 = export all buildings, N > 0 = export every Nth building
+func (p *OSMProcessor) exportBuildingsToGeoJSON(outputFile string, skipCount int) error {
+	totalBuildings := len(p.Buildings)
+
+	var exportedCount int
+	var skipDescription string
+
+	if skipCount <= 0 {
+		// Export all buildings
+		exportedCount = totalBuildings
+		skipDescription = "all"
+	} else {
+		// Export every Nth building
+		exportedCount = (totalBuildings + skipCount - 1) / skipCount
+		skipDescription = fmt.Sprintf("every %d", skipCount)
+	}
+
+	log.Printf("Exporting %s buildings (%d out of %d total) as squares to GeoJSON file: %s",
+		skipDescription, exportedCount, totalBuildings, outputFile)
+
+	// Create a GeoJSON FeatureCollection
+	fc := geojson.NewFeatureCollection()
+
+	// Add building squares as features
+	for i, building := range p.Buildings {
+		// Skip buildings based on skipCount
+		if skipCount > 0 && i%skipCount != 0 {
+			continue
+		}
+
+		// Calculate building area in square meters
+		buildingArea := geo.Area(building.Outline)
+
+		// Calculate square side length from area (in meters)
+		sideLength := math.Sqrt(buildingArea)
+
+		// Set minimum side length to 10km (10000 meters)
+		if sideLength < 2000.0 {
+			sideLength = 2000.0
+		}
+
+		// Convert side length from meters to degrees (approximate)
+		// At equator: 1 degree ≈ 111,000 meters
+		// For latitude, adjust by cos(latitude)
+		lat := building.CentroidLat
+		latRad := lat * math.Pi / 180.0
+
+		// Convert meters to degrees
+		sideLengthLat := sideLength / 111000.0
+		sideLengthLon := sideLength / (111000.0 * math.Cos(latRad))
+
+		// Create square coordinates around centroid
+		halfSideLat := sideLengthLat / 2.0
+		halfSideLon := sideLengthLon / 2.0
+
+		centerLat := building.CentroidLat
+		centerLon := building.CentroidLon
+
+		// Define square corners (counter-clockwise)
+		square := orb.Polygon{orb.Ring{
+			{centerLon - halfSideLon, centerLat - halfSideLat}, // Bottom-left
+			{centerLon + halfSideLon, centerLat - halfSideLat}, // Bottom-right
+			{centerLon + halfSideLon, centerLat + halfSideLat}, // Top-right
+			{centerLon - halfSideLon, centerLat + halfSideLat}, // Top-left
+			{centerLon - halfSideLon, centerLat - halfSideLat}, // Close the ring
+		}}
+
+		// Create a feature from the square
+		feature := geojson.NewFeature(square)
+
+		// Add properties
+		feature.Properties["levels"] = building.Levels
+		feature.Properties["area_m2"] = math.Round(buildingArea*100) / 100 // Round to 2 decimal places
+
+		// Add the feature to the collection
+		fc.Append(feature)
+	}
+
+	// Marshal the FeatureCollection to JSON
+	jsonData, err := json.MarshalIndent(fc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal buildings to JSON: %w", err)
+	}
+
+	// Write to file
+	err = os.WriteFile(outputFile, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write buildings GeoJSON file: %w", err)
+	}
+
+	actualExported := len(fc.Features)
+	log.Printf("Successfully exported %d building squares to %s", actualExported, outputFile)
+	return nil
 }

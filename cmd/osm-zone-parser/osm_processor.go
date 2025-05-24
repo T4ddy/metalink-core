@@ -655,6 +655,16 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		}
 	}
 
+	// Export buildings as squares to GeoJSON if enabled
+	if exportBuildingsJSON {
+		err := p.exportBuildingsToGeoJSON("buildings.geojson", 0)
+		if err != nil {
+			log.Printf("Warning: Failed to export buildings to GeoJSON: %v", err)
+		} else {
+			log.Printf("Successfully exported buildings to buildings.geojson")
+		}
+	}
+
 	err := p.SaveTestZoneToJSON(testZone, "test_zone.json")
 	if err != nil {
 		log.Printf("Warning: Failed to save test zone to JSON: %v", err)
