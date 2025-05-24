@@ -24,6 +24,7 @@ var (
 	exportBaseMapJSON bool
 	skipDB            bool
 	clearZones        bool
+	exportZonesJSON   bool
 
 	// Type indexer specific flags
 	inputFiles       string
@@ -59,9 +60,10 @@ func init() {
 	flag.StringVar(&osmFilePath, "osm-file", "", "Path to OSM PBF file")
 	flag.Float64Var(&baseZoneSize, "base-zone-size", 100000.0, "Base zone size in meters for USA map (default: 100km)")
 	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
-	flag.BoolVar(&exportBaseMapJSON, "export-json", true, "Export base USA map to GeoJSON file")
+	flag.BoolVar(&exportBaseMapJSON, "export-usa-grid-json", true, "Export base USA map to GeoJSON file")
 	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
 	flag.BoolVar(&clearZones, "clear-zones", false, "Clear all zones from database before saving updated ones (test mode)")
+	flag.BoolVar(&exportZonesJSON, "export-zones-json", false, "Export processed zones with building stats to GeoJSON file")
 
 	// Type indexer specific flags
 	flag.StringVar(&inputFiles, "input", "", "Comma-separated list of input JSON files")

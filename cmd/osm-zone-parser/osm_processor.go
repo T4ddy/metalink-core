@@ -350,7 +350,7 @@ func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64, skipD
 			log.Fatalf("Failed to query zones from database: %v", err)
 		}
 
-		err = exportZonesPGToGeoJSON(zones, "output_zones.geojson")
+		err = exportZonesPGToGeoJSON(zones, "output_zones.geojson", true)
 		if err != nil {
 			log.Fatalf("Failed to export zones: %v", err)
 		}
@@ -452,21 +452,6 @@ func calculateBuildingInfluenceRadius(buildingArea float64, radiusKf int) float6
 	}
 
 	return radius
-}
-
-// degreesToMeters converts a distance in degrees to meters at a given latitude
-func degreesToMeters(degrees float64, latitude float64) float64 {
-	// Earth's radius in meters
-	earthRadius := 6371000.0
-
-	// Convert to radians
-	latRad := latitude * math.Pi / 180.0
-
-	// For latitude: 1 degree ≈ 111km everywhere
-	// For longitude: depends on latitude
-	metersPerDegree := earthRadius * math.Pi / 180.0 * math.Cos(latRad)
-
-	return degrees * metersPerDegree
 }
 
 // metersToDegrees converts a distance in meters to degrees at a given latitude
@@ -657,6 +642,16 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		err := p.saveTestZoneToDB(testZone)
 		if err != nil {
 			return err
+		}
+	}
+
+	// Export zones to GeoJSON if enabled
+	if exportZonesJSON {
+		err := exportZonesPGToGeoJSON(zones, "processed_zones.geojson", true)
+		if err != nil {
+			log.Printf("Warning: Failed to export zones to GeoJSON: %v", err)
+		} else {
+			log.Printf("Successfully exported processed zones to processed_zones.geojson")
 		}
 	}
 
