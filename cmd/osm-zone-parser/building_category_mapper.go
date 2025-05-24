@@ -68,7 +68,7 @@ func getBuildingMappingConfig() *BuildingMappingConfig {
 // loadBuildingMappingConfig loads the building mapping configuration from JSON file
 func loadBuildingMappingConfig() (*BuildingMappingConfig, error) {
 	// Read the JSON file
-	data, err := os.ReadFile("/usa_buildings_data/bmap.json")
+	data, err := os.ReadFile("usa_buildings_data/bmap.json")
 	if err != nil {
 		return nil, err
 	}

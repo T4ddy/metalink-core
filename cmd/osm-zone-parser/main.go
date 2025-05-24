@@ -23,6 +23,7 @@ var (
 	minZoneSize       float64
 	exportBaseMapJSON bool
 	skipDB            bool
+	clearZones        bool
 
 	// Type indexer specific flags
 	inputFiles       string
@@ -60,6 +61,7 @@ func init() {
 	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
 	flag.BoolVar(&exportBaseMapJSON, "export-json", true, "Export base USA map to GeoJSON file")
 	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
+	flag.BoolVar(&clearZones, "clear-zones", false, "Clear all zones from database before saving updated ones (test mode)")
 
 	// Type indexer specific flags
 	flag.StringVar(&inputFiles, "input", "", "Comma-separated list of input JSON files")
@@ -138,6 +140,29 @@ func runOSMLayerMode() {
 		log.Println("Database operations are disabled. Will only process OSM file without updating zones.")
 	}
 
+	if clearZones {
+		log.Println("Clear zones mode enabled. All zones will be deleted and base grid will be regenerated.")
+
+		// Clear all zones from database if not skipping DB operations
+		if !skipDB {
+			if err := clearAllZonesFromDB(); err != nil {
+				log.Fatalf("Failed to clear zones from database: %v", err)
+			}
+		}
+
+		// Run base initialization to create fresh zone grid
+		log.Println("Regenerating base USA grid...")
+		zonesUSA := buildBaseUSAGrid()
+
+		// Save zones to database only if not skipping DB operations
+		if !skipDB {
+			saveZonesToDB(zonesUSA)
+			log.Printf("Successfully saved %d fresh zones to database", len(zonesUSA))
+		} else {
+			log.Printf("Skipping database operations. Generated %d fresh zones", len(zonesUSA))
+		}
+	}
+
 	// Process OSM data
 	processor := NewOSMProcessor()
 	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
@@ -154,7 +179,7 @@ func runOSMLayerMode() {
 
 	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
 
-	err = processor.UpdateZonesWithBuildingStats(zones, skipDB)
+	err = processor.UpdateZonesWithBuildingStats(zones, skipDB, true) // clearZones уже выполнен выше
 	if err != nil {
 		log.Fatalf("Failed to update zones with building stats: %v", err)
 	}

@@ -20,6 +20,7 @@ type BuildingEffect struct {
 // BuildingTypeConfig represents configuration for a specific building type
 type BuildingTypeConfig struct {
 	RadiusKf int            `json:"radiusKf"`
+	Weight   int            `json:"weight"`
 	Effects  BuildingEffect `json:"effects"`
 }
 
@@ -84,6 +85,16 @@ func GetBuildingRadiusKfByOSMType(osmBuildingType string) int {
 	return config.RadiusKf
 }
 
+// GetBuildingWeightByOSMType returns the weight for a building by OSM type
+// Returns 0 if no mapping or configuration is found
+func GetBuildingWeightByOSMType(osmBuildingType string) int {
+	config := GetBuildingEffectsConfigByOSMType(osmBuildingType)
+	if config == nil {
+		return 0
+	}
+	return config.Weight
+}
+
 // GetBuildingEffectsByOSMType returns the effects for a building by OSM type
 // Returns nil if no mapping or configuration is found
 func GetBuildingEffectsByOSMType(osmBuildingType string) *BuildingEffect {
@@ -133,6 +144,16 @@ func GetBuildingRadiusKf(buildingType string) int {
 		return 0
 	}
 	return config.RadiusKf
+}
+
+// GetBuildingWeight returns the weight for a specific building type
+// Returns 0 if no configuration is found
+func GetBuildingWeight(buildingType string) int {
+	config := GetBuildingEffectsConfig(buildingType)
+	if config == nil {
+		return 0
+	}
+	return config.Weight
 }
 
 // GetBuildingEffects returns the effects for a specific building type

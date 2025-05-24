@@ -14,7 +14,6 @@ import (
 
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
-	"metalink/internal/util"
 
 	"github.com/dhconnelly/rtreego"
 	"github.com/paulmach/orb"
@@ -435,13 +434,99 @@ func (z *ZoneSpatial) Bounds() rtreego.Rect {
 	return rect
 }
 
-// UpdateZonesWithBuildingStats updates zones with building statistics using spatial indexing
-func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool) error {
+// calculateBuildingInfluenceRadius calculates the radius of influence for a building
+// Returns radius in meters, capped at 1000m (1km)
+func calculateBuildingInfluenceRadius(buildingArea float64, radiusKf int) float64 {
+	// If radiusKf is 0 or negative, use a default small radius
+	if radiusKf <= 0 {
+		radiusKf = 1
+	}
+
+	// Calculate radius: sqrt(area) * radiusKf
+	// This gives us a radius proportional to the building size
+	radius := math.Sqrt(buildingArea) * float64(radiusKf)
+
+	// Cap at 1km for very large buildings
+	if radius > 1000.0 {
+		radius = 1000.0
+	}
+
+	return radius
+}
+
+// degreesToMeters converts a distance in degrees to meters at a given latitude
+func degreesToMeters(degrees float64, latitude float64) float64 {
+	// Earth's radius in meters
+	earthRadius := 6371000.0
+
+	// Convert to radians
+	latRad := latitude * math.Pi / 180.0
+
+	// For latitude: 1 degree ≈ 111km everywhere
+	// For longitude: depends on latitude
+	metersPerDegree := earthRadius * math.Pi / 180.0 * math.Cos(latRad)
+
+	return degrees * metersPerDegree
+}
+
+// metersToDegrees converts a distance in meters to degrees at a given latitude
+func metersToDegrees(meters float64, latitude float64) float64 {
+	// Earth's radius in meters
+	earthRadius := 6371000.0
+
+	// Convert to radians
+	latRad := latitude * math.Pi / 180.0
+
+	// For longitude: depends on latitude
+	metersPerDegree := earthRadius * math.Pi / 180.0 * math.Cos(latRad)
+
+	return meters / metersPerDegree
+}
+
+// findZonesInRadius finds all zones that intersect with a circle of given radius around a point
+func (p *OSMProcessor) findZonesInRadius(zoneIndex *rtreego.Rtree, centerLon, centerLat, radiusMeters float64) []*ZoneSpatial {
+	// Convert radius from meters to degrees (approximate)
+	// For latitude: 1 degree ≈ 111km
+	radiusLat := radiusMeters / 111000.0
+	// For longitude: depends on latitude
+	radiusLon := metersToDegrees(radiusMeters, centerLat)
+
+	// Create a search rectangle that contains the circle
+	searchRect, _ := rtreego.NewRect(
+		rtreego.Point{centerLon - radiusLon, centerLat - radiusLat},
+		[]float64{2 * radiusLon, 2 * radiusLat},
+	)
+
+	// Find all zones that intersect with the search rectangle
+	spatialResults := zoneIndex.SearchIntersect(searchRect)
+
+	// Filter to only include zones that actually intersect with the circle
+	var intersectingZones []*ZoneSpatial
+	for _, item := range spatialResults {
+		zoneSpatial := item.(*ZoneSpatial)
+		// For now, we'll include all zones in the rectangle
+		// In a more precise implementation, we could check circle-polygon intersection
+		intersectingZones = append(intersectingZones, zoneSpatial)
+	}
+
+	return intersectingZones
+}
+
+// UpdateZonesWithBuildingStats updates zones with building statistics using spatial indexing and influence radius
+func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool, clearZones bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
 
 	log.Printf("Updating %d zones with building statistics from %d buildings", len(zones), len(p.Buildings))
+	log.Printf("Using influence radius calculation with game type mapping")
+
+	// Clear all zones from database if requested and not skipping DB
+	if clearZones && !skipDB {
+		if err := clearAllZonesFromDB(); err != nil {
+			return fmt.Errorf("failed to clear zones from database: %w", err)
+		}
+	}
 
 	// Create spatial index for zones to optimize lookups
 	zoneIndex := rtreego.NewTree(2, 25, 50) // 2D index with min 25, max 50 entries per node
@@ -490,65 +575,73 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	// Create test zone for all buildings
 	testZone := p.createTestZone()
 
-	// Process each building
-	buildingCount := 0
-	for _, building := range p.Buildings {
-		// Calculate approximate building area
+	// Process each building with influence radius
+	processedBuildings := 0
+	for i, building := range p.Buildings {
+		// Calculate approximate building area in square meters
 		buildingArea := geo.Area(building.Outline) * float64(building.Levels)
 
-		// Create a point for building centroid
-		point := orb.Point{building.CentroidLon, building.CentroidLat}
+		// Map OSM building type to game category
+		gameCategory := MapBuildingCategory(building.Type)
 
-		// Create a small search rectangle around the centroid
-		searchRect, _ := rtreego.NewRect(
-			rtreego.Point{building.CentroidLon, building.CentroidLat},
-			[]float64{0.0001, 0.0001}, // Small search radius
-		)
+		// Get building configuration
+		buildingConfig := GetBuildingEffectsConfig(gameCategory)
+		if buildingConfig == nil {
+			// Use default if no config found
+			buildingConfig = &BuildingTypeConfig{
+				RadiusKf: 1,
+				Weight:   1,
+			}
+		}
 
-		// Find candidate zones using the spatial index
-		spatialResults := zoneIndex.SearchIntersect(searchRect)
+		// Calculate influence radius
+		influenceRadius := calculateBuildingInfluenceRadius(buildingArea, buildingConfig.RadiusKf)
 
-		// Check which zones actually contain this building's centroid
-		for _, item := range spatialResults {
-			zoneSpatial := item.(*ZoneSpatial)
-			zone := zoneSpatial.Zone
+		// Find all zones within the influence radius
+		zonesInRadius := p.findZonesInRadius(zoneIndex, building.CentroidLon, building.CentroidLat, influenceRadius)
 
-			// Perform precise point-in-polygon check
-			if util.PointInPolygon(*zoneSpatial.Polygon, point) {
-				// Update building count by type
-				buildingType := building.Type
-				if buildingType == "" {
-					buildingType = "unknown"
-				}
-				zone.Buildings.BuildingTypes[buildingType]++
-				zone.Buildings.BuildingAreas[buildingType] += buildingArea
+		if len(zonesInRadius) > 0 {
+			// Distribute building area equally among all affected zones
+			areaPerZone := buildingArea / float64(len(zonesInRadius))
+
+			for _, zoneSpatial := range zonesInRadius {
+				zone := zoneSpatial.Zone
+
+				// Update building count and area by game type (not OSM type)
+				zone.Buildings.BuildingTypes[gameCategory]++
+				zone.Buildings.BuildingAreas[gameCategory] += areaPerZone
 				zone.Buildings.TotalCount++
-				zone.Buildings.TotalArea += buildingArea
+				zone.Buildings.TotalArea += areaPerZone
 
 				// Update stats based on building height
 				if building.Levels <= 1 {
 					zone.Buildings.SingleFloorCount++
-					zone.Buildings.SingleFloorTotalArea += buildingArea
+					zone.Buildings.SingleFloorTotalArea += areaPerZone
 				} else if building.Levels >= 2 && building.Levels <= 9 {
 					zone.Buildings.LowRiseCount++
-					zone.Buildings.LowRiseTotalArea += buildingArea
+					zone.Buildings.LowRiseTotalArea += areaPerZone
 				} else if building.Levels >= 10 && building.Levels <= 29 {
 					zone.Buildings.HighRiseCount++
-					zone.Buildings.HighRiseTotalArea += buildingArea
+					zone.Buildings.HighRiseTotalArea += areaPerZone
 				} else if building.Levels >= 30 {
 					zone.Buildings.SkyscraperCount++
-					zone.Buildings.SkyscraperTotalArea += buildingArea
+					zone.Buildings.SkyscraperTotalArea += areaPerZone
 				}
-
-				buildingCount++
 			}
+
+			processedBuildings++
 		}
 
-		// Add building to test zone
-		p.addBuildingToTestZone(building, buildingArea, testZone)
+		// Add building to test zone with full area and game category
+		p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
+
+		// Log progress
+		if (i+1)%10000 == 0 {
+			log.Printf("Processed %d/%d buildings...", i+1, len(p.Buildings))
+		}
 	}
 
-	log.Printf("Added %d buildings to %d zones using spatial indexing", buildingCount, len(zones))
+	log.Printf("Distributed %d buildings across zones using influence radius", processedBuildings)
 	log.Printf("Created test zone with %d buildings", testZone.Buildings.TotalCount)
 
 	// Save updated zones to database
@@ -575,7 +668,31 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	return nil
 }
 
-// saveUpdatedZonesToDB saves updated zones back to the database
+// addBuildingToTestZoneWithGameType adds building statistics to the test zone using game type
+func (p *OSMProcessor) addBuildingToTestZoneWithGameType(building *model.Building, buildingArea float64, gameCategory string, testZone *model.Zone) {
+	// Update building count by game type
+	testZone.Buildings.BuildingTypes[gameCategory]++
+	testZone.Buildings.BuildingAreas[gameCategory] += buildingArea
+	testZone.Buildings.TotalCount++
+	testZone.Buildings.TotalArea += buildingArea
+
+	// Update stats based on building height
+	if building.Levels <= 1 {
+		testZone.Buildings.SingleFloorCount++
+		testZone.Buildings.SingleFloorTotalArea += buildingArea
+	} else if building.Levels >= 2 && building.Levels <= 9 {
+		testZone.Buildings.LowRiseCount++
+		testZone.Buildings.LowRiseTotalArea += buildingArea
+	} else if building.Levels >= 10 && building.Levels <= 29 {
+		testZone.Buildings.HighRiseCount++
+		testZone.Buildings.HighRiseTotalArea += buildingArea
+	} else if building.Levels >= 30 {
+		testZone.Buildings.SkyscraperCount++
+		testZone.Buildings.SkyscraperTotalArea += buildingArea
+	}
+}
+
+// saveUpdatedZonesToDB saves updated zones back to the database using UPSERT
 func saveUpdatedZonesToDB(zones []*model.Zone) error {
 	db := pg.GetDB()
 
@@ -589,9 +706,10 @@ func saveUpdatedZonesToDB(zones []*model.Zone) error {
 
 		batch := zones[i:end]
 
-		// Convert to PG models and update
+		// Convert to PG models and upsert
 		err := db.Transaction(func(tx *gorm.DB) error {
 			for _, zone := range batch {
+				now := time.Now()
 				pgZone := model.ZonePG{
 					ID:                zone.ID,
 					Name:              zone.Name,
@@ -601,10 +719,12 @@ func saveUpdatedZonesToDB(zones []*model.Zone) error {
 					BottomRightLatLon: model.Float64Slice(zone.BottomRightLatLon),
 					Buildings:         zone.Buildings,
 					WaterBodies:       zone.WaterBodies,
-					UpdatedAt:         time.Now(),
+					UpdatedAt:         now,
+					CreatedAt:         now, // Set CreatedAt for new records
 				}
 
-				result := tx.Model(&model.ZonePG{}).Where("id = ?", zone.ID).Updates(pgZone)
+				// Use Save method which performs UPSERT (INSERT or UPDATE)
+				result := tx.Save(&pgZone)
 				if result.Error != nil {
 					return result.Error
 				}
@@ -613,10 +733,10 @@ func saveUpdatedZonesToDB(zones []*model.Zone) error {
 		})
 
 		if err != nil {
-			return fmt.Errorf("failed to update zones batch %d-%d: %w", i, end, err)
+			return fmt.Errorf("failed to upsert zones batch %d-%d: %w", i, end, err)
 		}
 
-		log.Printf("Updated zone batch %d-%d", i, end)
+		log.Printf("Upserted zone batch %d-%d", i, end)
 	}
 
 	return nil
@@ -638,34 +758,6 @@ func (p *OSMProcessor) createTestZone() *model.Zone {
 			BuildingTypes: make(map[string]int),
 			BuildingAreas: make(map[string]float64),
 		},
-	}
-}
-
-// addBuildingToTestZone adds building statistics to the test zone
-func (p *OSMProcessor) addBuildingToTestZone(building *model.Building, buildingArea float64, testZone *model.Zone) {
-	// Update building count by type
-	buildingType := building.Type
-	if buildingType == "" {
-		buildingType = "unknown"
-	}
-	testZone.Buildings.BuildingTypes[buildingType]++
-	testZone.Buildings.BuildingAreas[buildingType] += buildingArea
-	testZone.Buildings.TotalCount++
-	testZone.Buildings.TotalArea += buildingArea
-
-	// Update stats based on building height
-	if building.Levels <= 1 {
-		testZone.Buildings.SingleFloorCount++
-		testZone.Buildings.SingleFloorTotalArea += buildingArea
-	} else if building.Levels >= 2 && building.Levels <= 9 {
-		testZone.Buildings.LowRiseCount++
-		testZone.Buildings.LowRiseTotalArea += buildingArea
-	} else if building.Levels >= 10 && building.Levels <= 29 {
-		testZone.Buildings.HighRiseCount++
-		testZone.Buildings.HighRiseTotalArea += buildingArea
-	} else if building.Levels >= 30 {
-		testZone.Buildings.SkyscraperCount++
-		testZone.Buildings.SkyscraperTotalArea += buildingArea
 	}
 }
 
@@ -757,7 +849,7 @@ func (p *OSMProcessor) saveTestZoneToDB(testZone *model.Zone) error {
 	return nil
 }
 
-// SaveTestZoneToJSON сохраняет тестовую зону в JSON файл
+// SaveTestZoneToJSON saves the test zone to a JSON file
 func (p *OSMProcessor) SaveTestZoneToJSON(testZone *model.Zone, outputFile string) error {
 	log.Printf("Saving test zone to JSON file: %s", outputFile)
 
@@ -794,5 +886,21 @@ func (p *OSMProcessor) SaveTestZoneToJSON(testZone *model.Zone, outputFile strin
 	}
 
 	log.Printf("Successfully saved test zone to %s", outputFile)
+	return nil
+}
+
+// clearAllZonesFromDB removes all zones from the database
+func clearAllZonesFromDB() error {
+	db := pg.GetDB()
+
+	log.Println("Clearing all zones from database...")
+
+	// Delete all zones
+	result := db.Exec("DELETE FROM zones")
+	if result.Error != nil {
+		return fmt.Errorf("failed to clear zones from database: %w", result.Error)
+	}
+
+	log.Printf("Successfully cleared %d zones from database", result.RowsAffected)
 	return nil
 }
