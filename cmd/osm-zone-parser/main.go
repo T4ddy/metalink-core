@@ -23,12 +23,22 @@ var (
 	minZoneSize       float64
 	exportBaseMapJSON bool
 	skipDB            bool
+
+	// Type indexer specific flags
+	inputFiles       string
+	outputFile       string
+	minOccurrences   int
+	minAreaInt       int
+	filterShortNames bool
+	filterSemicolon  bool
+	filterLongNames  bool
 )
 
 // RunMode represents different operation modes
 const (
-	RunModeBaseInit = 1
-	RunModeOSMLayer = 2
+	RunModeBaseInit    = 1
+	RunModeOSMLayer    = 2
+	RunModeTypeIndexer = 3
 )
 
 // GameZone represents a zone in our game grid
@@ -44,12 +54,21 @@ type GameZone struct {
 func init() {
 	// Define command line flags
 	flag.StringVar(&dbURL, "db-url", "postgresql://postgres:postgres@localhost:5432/metalink?sslmode=disable", "Database connection URL")
-	flag.IntVar(&runMode, "mode", 0, "Run mode: 1 = Base USA map initialization, 2 = Add OSM data layer")
+	flag.IntVar(&runMode, "mode", 0, "Run mode: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer")
 	flag.StringVar(&osmFilePath, "osm-file", "", "Path to OSM PBF file")
 	flag.Float64Var(&baseZoneSize, "base-zone-size", 100000.0, "Base zone size in meters for USA map (default: 100km)")
 	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
 	flag.BoolVar(&exportBaseMapJSON, "export-json", true, "Export base USA map to GeoJSON file")
 	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
+
+	// Type indexer specific flags
+	flag.StringVar(&inputFiles, "input", "", "Comma-separated list of input JSON files")
+	flag.StringVar(&outputFile, "output", "usa_buildings_data/bmap_tmp.json", "Output JSON file")
+	flag.IntVar(&minOccurrences, "min-occurrences", 2, "Minimum number of occurrences to keep a building type")
+	flag.IntVar(&minAreaInt, "min-area", 1000, "Minimum area in square meters to keep a building type")
+	flag.BoolVar(&filterShortNames, "filter-short-names", true, "Filter out building types with 1-2 character names")
+	flag.BoolVar(&filterSemicolon, "filter-semicolon", false, "Filter out building types with semicolon in name")
+	flag.BoolVar(&filterLongNames, "filter-long-names", true, "Filter out building types with names longer than 50 characters")
 }
 
 func main() {
@@ -58,11 +77,11 @@ func main() {
 
 	// Validate run mode
 	if runMode == 0 {
-		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer")
+		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer")
 	}
 
-	// Initialize database only if not skipping DB operations
-	if !skipDB {
+	// Initialize database only if not skipping DB operations and not in type indexer mode
+	if !skipDB && runMode != RunModeTypeIndexer {
 		initDB()
 		defer pg.Close()
 	}
@@ -73,6 +92,8 @@ func main() {
 		runBaseInitMode()
 	case RunModeOSMLayer:
 		runOSMLayerMode()
+	case RunModeTypeIndexer:
+		runTypeIndexerMode()
 	default:
 		log.Fatalf("Invalid run mode: %d", runMode)
 	}

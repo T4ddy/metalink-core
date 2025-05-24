@@ -2,14 +2,11 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
 )
-
-// TODO: сделай мапу похожих типов зданий. Конфиг для веса эффектов должен быть в джейсоне
 
 // ZoneData represents the structure of the JSON file with zone data
 type ZoneData struct {
@@ -49,39 +46,60 @@ type MergedStats struct {
 	BuildingAreas map[string]float64 `json:"building_areas"`
 }
 
-func main() {
-	// Define command line flags
-	inputFiles := flag.String("input", "", "Comma-separated list of input JSON files")
-	outputFile := flag.String("output", "test_data/merged_buildings.json", "Output JSON file")
-	minOccurrences := flag.Int("min-occurrences", 2, "Minimum number of occurrences to keep a building type")
-	minAreaInt := flag.Int("min-area", 1000, "Minimum area in square meters to keep a building type")
+// TypeValue represents a type-value pair for sorting
+type TypeValue struct {
+	Type  string
+	Value interface{}
+}
 
-	// Additional filters (enabled by default)
-	filterShortNames := flag.Bool("filter-short-names", true, "Filter out building types with 1-2 character names")
-	filterSemicolon := flag.Bool("filter-semicolon", true, "Filter out building types with semicolon in name")
-	filterLongNames := flag.Bool("filter-long-names", true, "Filter out building types with names longer than 50 characters")
+// TypeIndexerConfig holds configuration for the type indexer
+type TypeIndexerConfig struct {
+	InputFiles       string
+	OutputFile       string
+	MinOccurrences   int
+	MinArea          float64
+	FilterShortNames bool
+	FilterSemicolon  bool
+	FilterLongNames  bool
+}
 
-	flag.Parse()
+// runTypeIndexerMode processes and merges building statistics from JSON files
+func runTypeIndexerMode() {
+	log.Println("Running in Building Type Indexer mode")
 
-	// Convert minAreaInt to float64
-	minArea := float64(*minAreaInt)
+	config := TypeIndexerConfig{
+		InputFiles:       inputFiles,
+		OutputFile:       outputFile,
+		MinOccurrences:   minOccurrences,
+		MinArea:          float64(minAreaInt),
+		FilterShortNames: filterShortNames,
+		FilterSemicolon:  filterSemicolon,
+		FilterLongNames:  filterLongNames,
+	}
 
+	if err := processTypeIndexer(config); err != nil {
+		log.Fatalf("Type indexer failed: %v", err)
+	}
+}
+
+// processTypeIndexer is the main function that handles the type indexing logic
+func processTypeIndexer(config TypeIndexerConfig) error {
 	// Check for input files
-	if *inputFiles == "" {
-		log.Fatal("No input files specified. Use --input flag with comma-separated list of files")
+	if config.InputFiles == "" {
+		return fmt.Errorf("no input files specified. Use --input flag with comma-separated list of files")
 	}
 
 	// Parse the list of input files using strings.Split
-	files := strings.Split(*inputFiles, ",")
+	files := strings.Split(config.InputFiles, ",")
 	if len(files) == 0 {
-		log.Fatal("No input files found in the provided list")
+		return fmt.Errorf("no input files found in the provided list")
 	}
 
 	log.Printf("Processing %d input files", len(files))
-	log.Printf("Min occurrences: %d, Min area: %.2f m²", *minOccurrences, minArea)
-	log.Printf("Filter short names (1-2 chars): %v", *filterShortNames)
-	log.Printf("Filter semicolon names: %v", *filterSemicolon)
-	log.Printf("Filter long names (>50 chars): %v", *filterLongNames)
+	log.Printf("Min occurrences: %d, Min area: %.2f m²", config.MinOccurrences, config.MinArea)
+	log.Printf("Filter short names (1-2 chars): %v", config.FilterShortNames)
+	log.Printf("Filter semicolon names: %v", config.FilterSemicolon)
+	log.Printf("Filter long names (>50 chars): %v", config.FilterLongNames)
 	log.Printf("Filter logic: Remove if count < min-occurrences AND area < min-area")
 
 	// Create an object to store merged data
@@ -124,44 +142,72 @@ func main() {
 	log.Printf("Before filtering: %d building types", len(mergedStats.BuildingTypes))
 
 	// Apply filters
+	filteredStats, filterStats := applyFilters(mergedStats, config)
+
+	log.Printf("After filtering: %d building types", len(filteredStats.BuildingTypes))
+	log.Printf("Total removed: %d building types", filterStats.TotalRemoved)
+	log.Printf("  - Removed by short name filter: %d", filterStats.RemovedByShortName)
+	log.Printf("  - Removed by semicolon filter: %d", filterStats.RemovedBySemicolon)
+	log.Printf("  - Removed by long name filter: %d", filterStats.RemovedByLongName)
+	log.Printf("  - Removed by count+area filter: %d", filterStats.RemovedByCountAndArea)
+
+	// Save the result to a JSON file
+	if err := saveResultsToFile(filteredStats, config.OutputFile); err != nil {
+		return fmt.Errorf("failed to save results: %v", err)
+	}
+
+	// Output statistics
+	printStatistics(filteredStats)
+
+	return nil
+}
+
+// FilterStats holds statistics about the filtering process
+type FilterStats struct {
+	TotalRemoved          int
+	RemovedByShortName    int
+	RemovedBySemicolon    int
+	RemovedByLongName     int
+	RemovedByCountAndArea int
+}
+
+// applyFilters applies all configured filters to the building statistics
+func applyFilters(mergedStats MergedStats, config TypeIndexerConfig) (MergedStats, FilterStats) {
 	filteredTypes := make(map[string]int)
 	filteredAreas := make(map[string]float64)
-	removedCount := 0
-	removedByShortName := 0
-	removedBySemicolon := 0
-	removedByLongName := 0
-	removedByCountAndArea := 0
+
+	var stats FilterStats
 
 	for buildingType, count := range mergedStats.BuildingTypes {
 		area := mergedStats.BuildingAreas[buildingType]
 		shouldRemove := false
 
 		// Check short name filter
-		if *filterShortNames && len(buildingType) <= 2 {
+		if config.FilterShortNames && len(buildingType) <= 2 {
 			shouldRemove = true
-			removedByShortName++
+			stats.RemovedByShortName++
 		}
 
 		// Check semicolon filter
-		if *filterSemicolon && strings.Contains(buildingType, ";") {
+		if config.FilterSemicolon && strings.Contains(buildingType, ";") {
 			shouldRemove = true
-			removedBySemicolon++
+			stats.RemovedBySemicolon++
 		}
 
 		// Check long name filter
-		if *filterLongNames && len(buildingType) > 50 {
+		if config.FilterLongNames && len(buildingType) > 50 {
 			shouldRemove = true
-			removedByLongName++
+			stats.RemovedByLongName++
 		}
 
 		// Check count and area filter
-		if count < *minOccurrences && area < minArea {
+		if count < config.MinOccurrences && area < config.MinArea {
 			shouldRemove = true
-			removedByCountAndArea++
+			stats.RemovedByCountAndArea++
 		}
 
 		if shouldRemove {
-			removedCount++
+			stats.TotalRemoved++
 			continue // Skip this type, don't add to filtered maps
 		} else {
 			// Keep this type
@@ -170,51 +216,44 @@ func main() {
 		}
 	}
 
-	// Update merged data with filtered results
-	mergedStats.BuildingTypes = filteredTypes
-	mergedStats.BuildingAreas = filteredAreas
+	return MergedStats{
+		BuildingTypes: filteredTypes,
+		BuildingAreas: filteredAreas,
+	}, stats
+}
 
-	log.Printf("After filtering: %d building types", len(mergedStats.BuildingTypes))
-	log.Printf("Total removed: %d building types", removedCount)
-	log.Printf("  - Removed by short name filter: %d", removedByShortName)
-	log.Printf("  - Removed by semicolon filter: %d", removedBySemicolon)
-	log.Printf("  - Removed by long name filter: %d", removedByLongName)
-	log.Printf("  - Removed by count+area filter: %d", removedByCountAndArea)
-
-	// Save the result to a JSON file
-	jsonData, err := json.MarshalIndent(mergedStats, "", "  ")
+// saveResultsToFile saves the merged statistics to a JSON file
+func saveResultsToFile(stats MergedStats, outputFile string) error {
+	jsonData, err := json.MarshalIndent(stats, "", "  ")
 	if err != nil {
-		log.Fatalf("Error marshaling JSON: %v", err)
+		return fmt.Errorf("error marshaling JSON: %v", err)
 	}
 
-	if err := os.WriteFile(*outputFile, jsonData, 0644); err != nil {
-		log.Fatalf("Error writing output file: %v", err)
+	if err := os.WriteFile(outputFile, jsonData, 0644); err != nil {
+		return fmt.Errorf("error writing output file: %v", err)
 	}
 
-	log.Printf("Successfully merged and filtered building data to: %s", *outputFile)
+	log.Printf("Successfully merged and filtered building data to: %s", outputFile)
+	return nil
+}
 
-	// Output statistics
-	fmt.Printf("Total building types: %d\n", len(mergedStats.BuildingTypes))
+// printStatistics outputs top building types by count and area
+func printStatistics(stats MergedStats) {
+	fmt.Printf("Total building types: %d\n", len(stats.BuildingTypes))
 
 	// Output top-10 building types by count
 	fmt.Println("\nTop building types by count:")
-	topTypes := getTopBuildingTypes(mergedStats.BuildingTypes, 10)
+	topTypes := getTopBuildingTypes(stats.BuildingTypes, 10)
 	for i, item := range topTypes {
 		fmt.Printf("%d. %s: %d\n", i+1, item.Type, item.Value)
 	}
 
 	// Output top-10 building types by area
 	fmt.Println("\nTop building types by area (m²):")
-	topAreas := getTopBuildingAreas(mergedStats.BuildingAreas, 10)
+	topAreas := getTopBuildingAreas(stats.BuildingAreas, 10)
 	for i, item := range topAreas {
 		fmt.Printf("%d. %s: %.2f m²\n", i+1, item.Type, item.Value)
 	}
-}
-
-// TypeValue represents a type-value pair for sorting
-type TypeValue struct {
-	Type  string
-	Value interface{}
 }
 
 // getTopBuildingTypes returns the top-N building types by count
