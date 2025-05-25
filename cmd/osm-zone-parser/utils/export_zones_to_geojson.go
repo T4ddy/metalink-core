@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"encoding/json"
@@ -12,10 +12,12 @@ import (
 	"github.com/paulmach/orb"
 	"github.com/paulmach/orb/geo"
 	"github.com/paulmach/orb/geojson"
+
+	parser_model "metalink/cmd/osm-zone-parser/models"
 )
 
-// exportZonesPGToGeoJSON exports zones (FROM MODEL) from database to a GeoJSON file
-func exportZonesPGToGeoJSON(zones []*model.Zone, outputFile string, includeFullDetails bool) error {
+// ExportZonesToGeoJSON exports zones (FROM MODEL) from database to a GeoJSON file
+func ExportZonesToGeoJSON(zones []*model.Zone, outputFile string, includeFullDetails bool) error {
 	log.Printf("Exporting %d zones to GeoJSON file: %s (full details: %v)", len(zones), outputFile, includeFullDetails)
 
 	// Create a GeoJSON FeatureCollection
@@ -150,11 +152,11 @@ func exportZonesPGToGeoJSON(zones []*model.Zone, outputFile string, includeFullD
 		// Add basic properties
 		feature.Properties["id"] = zone.ID
 		feature.Properties["name"] = zone.Name
-		feature.Properties["top_width_km"] = roundToKilometers(topWidth)
-		feature.Properties["bottom_width_km"] = roundToKilometers(bottomWidth)
-		feature.Properties["left_height_km"] = roundToKilometers(leftHeight)
-		feature.Properties["right_height_km"] = roundToKilometers(rightHeight)
-		feature.Properties["area_km"] = roundToKilometers(area / 1000)
+		feature.Properties["top_width_km"] = RoundToKilometers(topWidth)
+		feature.Properties["bottom_width_km"] = RoundToKilometers(bottomWidth)
+		feature.Properties["left_height_km"] = RoundToKilometers(leftHeight)
+		feature.Properties["right_height_km"] = RoundToKilometers(rightHeight)
+		feature.Properties["area_km"] = RoundToKilometers(area / 1000)
 
 		// Add styling properties for visualization
 		feature.Properties["fill"] = fillColor
@@ -309,7 +311,7 @@ func calculateZoneColor(buildingArea, minArea, maxArea float64) (string, float64
 		t := (normalized - 0.6) / 0.2
 		r = int(255)               // 255 stays
 		g = int(204 + (138-204)*t) // 204 to 138
-		b = int(128 + (128-128)*t) // 128 to 128
+		b = int(128)               // 128 to 128
 	} else {
 		// High: red to dark red
 		t := (normalized - 0.8) / 0.2
@@ -326,14 +328,8 @@ func calculateZoneColor(buildingArea, minArea, maxArea float64) (string, float64
 	return color, opacity
 }
 
-// roundToKilometers converts meters to kilometers and rounds to 2 decimal places
-func roundToKilometers(meters float64) float64 {
-	km := meters / 1000.0
-	return math.Round(km*100) / 100
-}
-
-// exportZonesToGeoJSON exports zones (GameZone) to a GeoJSON file for visualization
-func exportZonesToGeoJSON(zones []GameZone, outputFile string, topLeft, topRight, bottomLeft, bottomRight [2]float64) {
+// ExportGameZonesToGeoJSON exports zones (GameZone) to a GeoJSON file for visualization
+func ExportGameZonesToGeoJSON(zones []parser_model.GameZone, outputFile string, topLeft, topRight, bottomLeft, bottomRight [2]float64) {
 	log.Printf("Exporting %d zones to GeoJSON file: %s", len(zones), outputFile)
 
 	// Create a GeoJSON FeatureCollection
@@ -404,11 +400,11 @@ func exportZonesToGeoJSON(zones []GameZone, outputFile string, topLeft, topRight
 		area := (topWidth + bottomWidth) * avgHeight / 2
 
 		// Add properties
-		feature.Properties["top_width_km"] = roundToKilometers(topWidth)
-		feature.Properties["bottom_width_km"] = roundToKilometers(bottomWidth)
-		feature.Properties["left_height_km"] = roundToKilometers(leftHeight)
-		feature.Properties["right_height_km"] = roundToKilometers(rightHeight)
-		feature.Properties["area_km"] = roundToKilometers(area / 1000)
+		feature.Properties["top_width_km"] = RoundToKilometers(topWidth)
+		feature.Properties["bottom_width_km"] = RoundToKilometers(bottomWidth)
+		feature.Properties["left_height_km"] = RoundToKilometers(leftHeight)
+		feature.Properties["right_height_km"] = RoundToKilometers(rightHeight)
+		feature.Properties["area_km"] = RoundToKilometers(area / 1000)
 
 		// Add the feature to the collection
 		fc.Append(feature)
@@ -456,8 +452,8 @@ func exportZonesToGeoJSON(zones []GameZone, outputFile string, topLeft, topRight
 
 // exportBuildingsToGeoJSON exports building approximations as squares to a GeoJSON file
 // skipCount: 0 = export all buildings, N > 0 = export every Nth building
-func (p *OSMProcessor) exportBuildingsToGeoJSON(outputFile string, skipCount int) error {
-	totalBuildings := len(p.Buildings)
+func ExportBuildingsToGeoJSON(buildings []*model.Building, outputFile string, skipCount int) error {
+	totalBuildings := len(buildings)
 
 	var exportedCount int
 	var skipDescription string
@@ -479,7 +475,7 @@ func (p *OSMProcessor) exportBuildingsToGeoJSON(outputFile string, skipCount int
 	fc := geojson.NewFeatureCollection()
 
 	// Add building squares as features
-	for i, building := range p.Buildings {
+	for i, building := range buildings {
 		// Skip buildings based on skipCount
 		if skipCount > 0 && i%skipCount != 0 {
 			continue

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	parser_model "metalink/cmd/osm-zone-parser/models"
 )
 
 // USA map boundaries in [lat, lon] format
@@ -14,7 +15,7 @@ var (
 )
 
 // buildBaseUSAGrid creates a grid of zones covering the USA
-func buildBaseUSAGrid() []GameZone {
+func buildBaseUSAGrid() []parser_model.GameZone {
 	// Build dynamic grid
 	zones := buildFixeSizedGrid(USATopLeft, USATopRight, USABottomLeft, USABottomRight, baseZoneSize)
 	fmt.Printf("Created %d zones with buildBaseUSAGrid\n", len(zones))
@@ -24,7 +25,7 @@ func buildBaseUSAGrid() []GameZone {
 
 // buildFixeSizedGrid creates a grid of zones with area of maxZoneSize*maxZoneSize sq. meters
 // The height is always maxZoneSize meters, and width is adjusted to achieve the target area
-func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxZoneSize float64) []GameZone {
+func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, maxZoneSize float64) []parser_model.GameZone {
 	// Find the extreme points to ensure we cover the entire area
 	minLat := math.Min(math.Min(topLeft[0], topRight[0]), math.Min(bottomLeft[0], bottomRight[0]))
 	maxLat := math.Max(math.Max(topLeft[0], topRight[0]), math.Max(bottomLeft[0], bottomRight[0]))
@@ -32,7 +33,7 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 	maxLon := math.Max(math.Max(topLeft[1], topRight[1]), math.Max(bottomLeft[1], bottomRight[1]))
 
 	// Create zones array
-	var zones []GameZone
+	var zones []parser_model.GameZone
 	targetArea := maxZoneSize * maxZoneSize
 
 	// Start at the northernmost latitude (max) and move south
@@ -75,7 +76,7 @@ func buildFixeSizedGrid(topLeft, topRight, bottomLeft, bottomRight [2]float64, m
 			zoneBottomRight := [2]float64{nextLat, nextLon}
 
 			// Create a zone
-			zone := GameZone{
+			zone := parser_model.GameZone{
 				ID:                fmt.Sprintf("zone_%d_%d", row, col),
 				TopLeftLatLon:     zoneTopLeft,
 				TopRightLatLon:    zoneTopRight,

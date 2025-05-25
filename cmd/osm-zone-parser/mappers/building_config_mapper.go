@@ -1,4 +1,4 @@
-package main
+package mappers
 
 import (
 	"encoding/json"

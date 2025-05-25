@@ -2,16 +2,17 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
-	"time"
 
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
+
+	parser_db "metalink/cmd/osm-zone-parser/db"
+	osm_processor "metalink/cmd/osm-zone-parser/osm_processor"
+	utils "metalink/cmd/osm-zone-parser/utils"
 )
 
 // Command line flags
@@ -43,16 +44,6 @@ const (
 	RunModeOSMLayer    = 2
 	RunModeTypeIndexer = 3
 )
-
-// GameZone represents a zone in our game grid
-type GameZone struct {
-	ID                string
-	TopLeftLatLon     [2]float64 // [lat, lon]
-	TopRightLatLon    [2]float64 // [lat, lon]
-	BottomLeftLatLon  [2]float64 // [lat, lon]
-	BottomRightLatLon [2]float64 // [lat, lon]
-	Size              float64    // Size in meters
-}
 
 func init() {
 	// Define command line flags
@@ -114,7 +105,7 @@ func runBaseInitMode() {
 
 	// Save zones to database only if not skipping DB operations
 	if !skipDB {
-		saveZonesToDB(zonesUSA)
+		parser_db.SaveZonesToDB(zonesUSA)
 		log.Printf("Successfully saved %d zones to database", len(zonesUSA))
 	} else {
 		log.Printf("Skipping database operations. Generated %d zones", len(zonesUSA))
@@ -122,7 +113,7 @@ func runBaseInitMode() {
 
 	// Export zones to GeoJSON if enabled
 	if exportBaseMapJSON {
-		exportZonesToGeoJSON(zonesUSA, "output_zones.geojson", USATopLeft, USATopRight, USABottomLeft, USABottomRight)
+		utils.ExportGameZonesToGeoJSON(zonesUSA, "output_zones.geojson", USATopLeft, USATopRight, USABottomLeft, USABottomRight)
 	}
 }
 
@@ -149,7 +140,7 @@ func runOSMLayerMode() {
 
 		// Clear all zones from database if not skipping DB operations
 		if !skipDB {
-			if err := clearAllZonesFromDB(); err != nil {
+			if err := parser_db.ClearAllZonesFromDB(); err != nil {
 				log.Fatalf("Failed to clear zones from database: %v", err)
 			}
 		}
@@ -160,7 +151,7 @@ func runOSMLayerMode() {
 
 		// Save zones to database only if not skipping DB operations
 		if !skipDB {
-			saveZonesToDB(zonesUSA)
+			parser_db.SaveZonesToDB(zonesUSA)
 			log.Printf("Successfully saved %d fresh zones to database", len(zonesUSA))
 		} else {
 			log.Printf("Skipping database operations. Generated %d fresh zones", len(zonesUSA))
@@ -168,7 +159,7 @@ func runOSMLayerMode() {
 	}
 
 	// Process OSM data
-	processor := NewOSMProcessor()
+	processor := osm_processor.NewOSMProcessor()
 	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
 		log.Fatalf("Failed to process OSM file: %v", err)
 	}
@@ -183,7 +174,7 @@ func runOSMLayerMode() {
 
 	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
 
-	err = processor.UpdateZonesWithBuildingStats(zones, skipDB, true) // clearZones уже выполнен выше
+	err = processor.UpdateZonesWithBuildingStats(zones, skipDB, clearZones, exportZonesJSON, exportBuildingsJSON) // clearZones уже выполнен выше
 	if err != nil {
 		log.Fatalf("Failed to update zones with building stats: %v", err)
 	}
@@ -201,67 +192,4 @@ func initDB() *gorm.DB {
 	}
 
 	return db
-}
-
-// saveZonesToDB converts GameZones to ZonePG models and saves them to the database
-func saveZonesToDB(zones []GameZone) {
-	db := pg.GetDB()
-
-	// Create a batch of zones to insert
-	var zonePGs []model.ZonePG
-	now := time.Now()
-
-	for _, zone := range zones {
-		// Generate a UUID if the zone ID is in format "zone_X_Y"
-		id := zone.ID
-		if _, err := fmt.Sscanf(zone.ID, "zone_%d_%d", new(int), new(int)); err == nil {
-			id = uuid.New().String()
-		}
-
-		topLeft := model.Float64Slice{zone.TopLeftLatLon[0], zone.TopLeftLatLon[1]}
-		topRight := model.Float64Slice{zone.TopRightLatLon[0], zone.TopRightLatLon[1]}
-		bottomLeft := model.Float64Slice{zone.BottomLeftLatLon[0], zone.BottomLeftLatLon[1]}
-		bottomRight := model.Float64Slice{zone.BottomRightLatLon[0], zone.BottomRightLatLon[1]}
-
-		// Initialize empty building and water stats
-		emptyBuildingStats := model.BuildingStats{
-			BuildingTypes: make(map[string]int),
-			BuildingAreas: make(map[string]float64),
-		}
-
-		emptyWaterBodyStats := model.WaterBodyStats{}
-
-		// Create a ZonePG from the GameZone
-		zonePG := model.ZonePG{
-			ID:                id,
-			Name:              fmt.Sprintf("Zone %s", id),
-			TopLeftLatLon:     topLeft,
-			TopRightLatLon:    topRight,
-			BottomLeftLatLon:  bottomLeft,
-			BottomRightLatLon: bottomRight,
-			Buildings:         emptyBuildingStats,
-			WaterBodies:       emptyWaterBodyStats,
-			CreatedAt:         now,
-			UpdatedAt:         now,
-		}
-
-		zonePGs = append(zonePGs, zonePG)
-	}
-
-	// Insert in batches of 100 to avoid overwhelming the database
-	batchSize := 100
-	for i := 0; i < len(zonePGs); i += batchSize {
-		end := i + batchSize
-		if end > len(zonePGs) {
-			end = len(zonePGs)
-		}
-
-		batch := zonePGs[i:end]
-		result := db.Create(&batch)
-		if result.Error != nil {
-			log.Printf("Error saving batch %d-%d: %v", i, end, result.Error)
-		} else {
-			log.Printf("Saved batch %d-%d successfully", i, end)
-		}
-	}
 }
