@@ -436,15 +436,16 @@ func (z *ZoneSpatial) Bounds() rtreego.Rect {
 
 // calculateBuildingInfluenceRadius calculates the radius of influence for a building
 // Returns radius in meters, capped at 1000m (1km)
-func calculateBuildingInfluenceRadius(buildingArea float64, radiusKf int) float64 {
-	// If radiusKf is 0 or negative, use a default small radius
-	if radiusKf <= 0 {
-		radiusKf = 1
+func calculateBuildingInfluenceRadius(buildingArea float64, extraRadiusKf float64) float64 {
+	// If extraRadiusKf is 0 or negative, use a default small radius
+	if extraRadiusKf <= 0 {
+		extraRadiusKf = 1
 	}
 
-	// Calculate radius: sqrt(area) * radiusKf
+	// Calculate radius: base_radius + sqrt(area) * extra_radius_kf * base_area_kf
 	// This gives us a radius proportional to the building size
-	radius := math.Sqrt(buildingArea) * float64(radiusKf)
+	radius := GetBuildingBaseRadius() +
+		math.Sqrt(buildingArea)*extraRadiusKf*GetBaseAreaKf()
 
 	// Cap at 1km for very large buildings
 	if radius > 1000.0 {
@@ -562,6 +563,7 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 
 	// Process each building with influence radius
 	processedBuildings := 0
+	buildingsDistributedToMultipleZones := 0
 	for i, building := range p.Buildings {
 		// Calculate approximate building area in square meters
 		buildingArea := geo.Area(building.Outline) * float64(building.Levels)
@@ -574,18 +576,24 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		if buildingConfig == nil {
 			// Use default if no config found
 			buildingConfig = &BuildingTypeConfig{
-				RadiusKf: 1,
-				Weight:   1,
+				ExtraRadiusKf: 1.0,
+				Weight:        1,
 			}
 		}
 
 		// Calculate influence radius
-		influenceRadius := calculateBuildingInfluenceRadius(buildingArea, buildingConfig.RadiusKf)
+		influenceRadius := calculateBuildingInfluenceRadius(buildingArea, buildingConfig.ExtraRadiusKf)
+		// log.Printf("%v >> %.2f m² >> %.2f m", i+1, buildingArea, influenceRadius)
 
 		// Find all zones within the influence radius
 		zonesInRadius := p.findZonesInRadius(zoneIndex, building.CentroidLon, building.CentroidLat, influenceRadius)
 
 		if len(zonesInRadius) > 0 {
+			// Count buildings that are distributed across multiple zones
+			if len(zonesInRadius) > 1 {
+				buildingsDistributedToMultipleZones++
+			}
+
 			// Distribute building area equally among all affected zones
 			areaPerZone := buildingArea / float64(len(zonesInRadius))
 
@@ -621,12 +629,15 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
 
 		// Log progress
-		if (i+1)%10000 == 0 {
+		if (i+1)%20000 == 0 {
 			log.Printf("Processed %d/%d buildings...", i+1, len(p.Buildings))
 		}
 	}
 
 	log.Printf("Distributed %d buildings across zones using influence radius", processedBuildings)
+	log.Printf("Buildings distributed to multiple zones: %d out of %d total (%.2f%%)",
+		buildingsDistributedToMultipleZones, len(p.Buildings),
+		float64(buildingsDistributedToMultipleZones)/float64(len(p.Buildings))*100)
 	log.Printf("Created test zone with %d buildings", testZone.Buildings.TotalCount)
 
 	// Save updated zones to database

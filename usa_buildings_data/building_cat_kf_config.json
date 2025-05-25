@@ -1,7 +1,9 @@
 {
+  "building_base_radius": 15,
+  "base_area_kf": 3,
   "building_effects_config": {
     "residential": {
-      "radiusKf": 25,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": 20,
@@ -10,7 +12,7 @@
       }
     },
     "commercial_retail": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 25,
@@ -19,7 +21,7 @@
       }
     },
     "industrial_manufacturing": {
-      "radiusKf": 60,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 30,
@@ -28,7 +30,7 @@
       }
     },
     "agricultural_farming": {
-      "radiusKf": 50,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 35,
@@ -37,7 +39,7 @@
       }
     },
     "religious_worship": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": 25,
@@ -46,7 +48,7 @@
       }
     },
     "educational": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 12,
@@ -55,7 +57,7 @@
       }
     },
     "healthcare_medical": {
-      "radiusKf": 45,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 40,
@@ -64,7 +66,7 @@
       }
     },
     "government_civic": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 15,
@@ -74,7 +76,7 @@
       }
     },
     "police": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 20,
@@ -83,7 +85,7 @@
       }
     },
     "military_security": {
-      "radiusKf": 50,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 25,
@@ -93,7 +95,7 @@
       }
     },
     "transportation_automotive": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 25,
@@ -102,7 +104,7 @@
       }
     },
     "transportation_aviation": {
-      "radiusKf": 80,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 35,
@@ -111,7 +113,7 @@
       }
     },
     "transportation_rail": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 20,
@@ -120,7 +122,7 @@
       }
     },
     "transportation_water": {
-      "radiusKf": 25,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "water_search": 15,
@@ -129,7 +131,7 @@
       }
     },
     "hospitality_accommodation": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": 30,
@@ -138,7 +140,7 @@
       }
     },
     "entertainment_venues": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 15,
@@ -147,7 +149,7 @@
       }
     },
     "sports_facilities": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "stamina_consumption": 20,
@@ -156,7 +158,7 @@
       }
     },
     "recreational_outdoor": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": -15,
@@ -165,7 +167,7 @@
       }
     },
     "power_generation": {
-      "radiusKf": 70,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 40,
@@ -174,7 +176,7 @@
       }
     },
     "water_infrastructure": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "water_search": 35,
@@ -182,7 +184,7 @@
       }
     },
     "computers": {
-      "radiusKf": 15,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 3,
@@ -190,7 +192,7 @@
       }
     },
     "utilities_infrastructure": {
-      "radiusKf": 50,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 25,
@@ -198,7 +200,7 @@
       }
     },
     "storage_warehousing": {
-      "radiusKf": 45,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 20,
@@ -207,7 +209,7 @@
       }
     },
     "cultural_historic": {
-      "radiusKf": 25,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": 15,
@@ -216,7 +218,7 @@
       }
     },
     "food_services": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "food_search": 30,
@@ -225,7 +227,7 @@
       }
     },
     "construction_temporary": {
-      "radiusKf": 40,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 30,
@@ -234,7 +236,7 @@
       }
     },
     "specialized_buildings": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "medicine_search": 8,
@@ -242,7 +244,7 @@
       }
     },
     "mobile_temporary": {
-      "radiusKf": 20,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": -5,
@@ -251,7 +253,7 @@
       }
     },
     "sanitation_facilities": {
-      "radiusKf": 25,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "water_search": 20,
@@ -260,7 +262,7 @@
       }
     },
     "maintenance_service": {
-      "radiusKf": 30,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 15,
@@ -269,7 +271,7 @@
       }
     },
     "abandoned_disused": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 25,
@@ -278,14 +280,14 @@
       }
     },
     "roof_structures": {
-      "radiusKf": 10,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "sleep_quality": -5
       }
     },
     "transportation_general": {
-      "radiusKf": 35,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {
         "air_quality": 20,
@@ -293,12 +295,12 @@
       }
     },
     "empty_no_loot": {
-      "radiusKf": 5,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {}
     },
     "other": {
-      "radiusKf": 5,
+      "extra_radius_kf": 1,
       "weight": 1,
       "efects": {}
     }

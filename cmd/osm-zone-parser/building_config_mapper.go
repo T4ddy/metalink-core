@@ -19,13 +19,15 @@ type BuildingEffect struct {
 
 // BuildingTypeConfig represents configuration for a specific building type
 type BuildingTypeConfig struct {
-	RadiusKf int            `json:"radiusKf"`
-	Weight   int            `json:"weight"`
-	Effects  BuildingEffect `json:"effects"`
+	ExtraRadiusKf float64        `json:"extra_radius_kf"`
+	Weight        float64        `json:"weight"`
+	Effects       BuildingEffect `json:"effects"`
 }
 
 // BuildingEffectsConfig represents the structure of building effects configuration
 type BuildingEffectsConfig struct {
+	BuildingBaseRadius    float64                       `json:"building_base_radius"`
+	BaseAreaKf            float64                       `json:"base_area_kf"`
 	BuildingEffectsConfig map[string]BuildingTypeConfig `json:"building_effects_config"`
 }
 
@@ -77,17 +79,17 @@ func GetBuildingEffectsConfigByOSMType(osmBuildingType string) *BuildingTypeConf
 
 // GetBuildingRadiusKfByOSMType returns the radius coefficient for a building by OSM type
 // Returns 0 if no mapping or configuration is found
-func GetBuildingRadiusKfByOSMType(osmBuildingType string) int {
+func GetBuildingRadiusKfByOSMType(osmBuildingType string) float64 {
 	config := GetBuildingEffectsConfigByOSMType(osmBuildingType)
 	if config == nil {
 		return 0
 	}
-	return config.RadiusKf
+	return config.ExtraRadiusKf
 }
 
 // GetBuildingWeightByOSMType returns the weight for a building by OSM type
 // Returns 0 if no mapping or configuration is found
-func GetBuildingWeightByOSMType(osmBuildingType string) int {
+func GetBuildingWeightByOSMType(osmBuildingType string) float64 {
 	config := GetBuildingEffectsConfigByOSMType(osmBuildingType)
 	if config == nil {
 		return 0
@@ -138,17 +140,17 @@ func loadBuildingEffectsConfig() (*BuildingEffectsConfig, error) {
 
 // GetBuildingRadiusKf returns the radius coefficient for a specific building type
 // Returns 0 if no configuration is found
-func GetBuildingRadiusKf(buildingType string) int {
+func GetBuildingRadiusKf(buildingType string) float64 {
 	config := GetBuildingEffectsConfig(buildingType)
 	if config == nil {
 		return 0
 	}
-	return config.RadiusKf
+	return config.ExtraRadiusKf
 }
 
 // GetBuildingWeight returns the weight for a specific building type
 // Returns 0 if no configuration is found
-func GetBuildingWeight(buildingType string) int {
+func GetBuildingWeight(buildingType string) float64 {
 	config := GetBuildingEffectsConfig(buildingType)
 	if config == nil {
 		return 0
@@ -164,4 +166,34 @@ func GetBuildingEffects(buildingType string) *BuildingEffect {
 		return nil
 	}
 	return &config.Effects
+}
+
+// GetBuildingBaseRadius returns the base radius for a specific building type
+// Returns 0 if no configuration is found
+func GetBuildingBaseRadius() float64 {
+	config := getBuildingEffectsConfig()
+	if config == nil {
+		return 1
+	}
+	return float64(config.BuildingBaseRadius)
+}
+
+// GetBuildingBaseRadiusKf returns the base radius coefficient for a specific building type
+// Returns 0 if no configuration is found
+func GetBuildingBaseRadiusKf() float64 {
+	config := getBuildingEffectsConfig()
+	if config == nil {
+		return 0
+	}
+	return float64(config.BuildingBaseRadius)
+}
+
+// GetBaseAreaKf returns the base area coefficient for building radius calculation
+// Returns 0 if no configuration is found
+func GetBaseAreaKf() float64 {
+	config := getBuildingEffectsConfig()
+	if config == nil {
+		return 0
+	}
+	return float64(config.BaseAreaKf)
 }
