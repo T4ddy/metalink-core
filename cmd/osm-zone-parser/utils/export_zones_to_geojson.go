@@ -17,7 +17,7 @@ import (
 )
 
 // ExportZonesToGeoJSON exports zones (FROM MODEL) from database to a GeoJSON file
-func ExportZonesToGeoJSON(zones []*model.Zone, outputFile string, includeFullDetails bool) error {
+func ExportZonesToGeoJSON(zones []*model.Zone, outputFile string, includeFullDetails bool, withColor bool) error {
 	log.Printf("Exporting %d zones to GeoJSON file: %s (full details: %v)", len(zones), outputFile, includeFullDetails)
 
 	// Create a GeoJSON FeatureCollection
@@ -158,12 +158,14 @@ func ExportZonesToGeoJSON(zones []*model.Zone, outputFile string, includeFullDet
 		feature.Properties["right_height_km"] = RoundToKilometers(rightHeight)
 		feature.Properties["area_km"] = RoundToKilometers(area / 1000)
 
-		// Add styling properties for visualization
-		feature.Properties["fill"] = fillColor
-		feature.Properties["fill-opacity"] = fillOpacity
-		feature.Properties["stroke"] = "#333333"
-		feature.Properties["stroke-width"] = 1
-		feature.Properties["stroke-opacity"] = 0.8
+		if withColor {
+			// Add styling properties for visualization
+			feature.Properties["fill"] = fillColor
+			feature.Properties["fill-opacity"] = fillOpacity
+			feature.Properties["stroke"] = "#333333"
+			feature.Properties["stroke-width"] = 1
+			feature.Properties["stroke-opacity"] = 0.8
+		}
 
 		// Add building statistics if requested
 		if includeFullDetails {

@@ -8,8 +8,8 @@ import (
 )
 
 // runAdaptiveZoneSubdivision runs the main iterative algorithm for zone subdivision
-func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone *model.Zone) error {
-	log.Printf("Starting adaptive zone subdivision algorithm with %d initial zones", len(zones))
+func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone *model.Zone) error {
+	log.Printf("Starting adaptive zone subdivision algorithm with %d initial zones", len(*zones))
 
 	// Fill test zone with ALL buildings ONCE at the beginning
 	if err := p.fillTestZoneWithAllBuildings(testZone); err != nil {
@@ -17,8 +17,8 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone 
 	}
 
 	// Step 1: Mark ALL zones for recalculation (ONLY ONCE at the beginning)
-	log.Printf("Marking all %d zones for recalculation", len(zones))
-	for _, zone := range zones {
+	log.Printf("Marking all %d zones for recalculation", len(*zones))
+	for _, zone := range *zones {
 		zone.RecalculateNeeded = true
 	}
 
@@ -30,25 +30,25 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone 
 		log.Printf("=== Iteration %d ===", iteration)
 
 		// Step 2: Create backups of all recalculation-needed zones
-		zoneBackups := p.createZoneBackupsForRecalcNeeded(zones)
+		zoneBackups := p.createZoneBackupsForRecalcNeeded(*zones)
 
 		// Step 3: Process buildings for recalculation-needed zones
-		zoneIndex, err := p.updateSpatialIndexWithNewZones(zones)
+		zoneIndex, err := p.updateSpatialIndexWithNewZones(*zones)
 		if err != nil {
 			return fmt.Errorf("failed to update spatial index: %w", err)
 		}
 
-		stats, err := p.processRecalculationNeededZones(zones, zoneIndex, testZone)
+		stats, err := p.processRecalculationNeededZones(*zones, zoneIndex)
 		if err != nil {
 			return fmt.Errorf("failed to process recalculation zones: %w", err)
 		}
 
 		// Step 4: Find overweight zones
 		weightThreshold := mappers.GetWeightThreshold()
-		overweightZoneIDs := p.findOverweightZones(zones, weightThreshold)
+		overweightZoneIDs := p.findOverweightZones(*zones, weightThreshold)
 
 		if len(overweightZoneIDs) == 0 {
-			log.Printf("No overweight zones found. Algorithm converged after %d iterations.", iteration)
+			log.Printf("No overweight zones found.")
 			break
 		}
 
@@ -65,13 +65,13 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone 
 		// Step 6: Restore overweight and affected zones from backups
 		// (this automatically restores recalculate_needed flag)
 		allZonesToRestore := append(overweightZoneIDs, affectedZoneIDs...)
-		p.restoreZonesFromBackups(allZonesToRestore, zoneBackups, zones)
+		p.restoreZonesFromBackups(allZonesToRestore, zoneBackups, *zones)
 
 		// Step 7: Split overweight zones into 4 parts
 		// (new zones automatically get recalculate_needed = true)
 		var allNewZones []*model.Zone
 		for _, zoneID := range overweightZoneIDs {
-			zone := p.findZoneByID(zones, zoneID)
+			zone := p.findZoneByID(*zones, zoneID)
 			if zone == nil {
 				log.Printf("Warning: Could not find zone %s for splitting", zoneID)
 				continue
@@ -87,13 +87,13 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone 
 		}
 
 		// Step 8: Remove overweight zones from list
-		p.removeZonesFromList(&zones, overweightZoneIDs)
+		p.removeZonesFromList(zones, overweightZoneIDs)
 
 		// Step 9: Add new split zones to list
-		p.addZonesToList(&zones, allNewZones)
+		p.addZonesToList(zones, allNewZones)
 
 		log.Printf("Iteration %d completed: removed %d zones, added %d zones. Total zones: %d",
-			iteration, len(overweightZoneIDs), len(allNewZones), len(zones))
+			iteration, len(overweightZoneIDs), len(allNewZones), len(*zones))
 
 		// Continue to next iteration (goto step 2, NOT step 1!)
 	}
@@ -103,7 +103,7 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones []*model.Zone, testZone 
 	}
 
 	log.Printf("Adaptive zone subdivision completed successfully after %d iterations with %d final zones",
-		iteration, len(zones))
+		iteration, len(*zones))
 	return nil
 }
 

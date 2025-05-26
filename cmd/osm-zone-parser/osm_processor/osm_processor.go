@@ -10,13 +10,11 @@ import (
 	"sync"
 
 	parser_db "metalink/cmd/osm-zone-parser/db"
-	mappers "metalink/cmd/osm-zone-parser/mappers"
 	utils "metalink/cmd/osm-zone-parser/utils"
 	"metalink/internal/model"
 
 	"github.com/dhconnelly/rtreego"
 	"github.com/paulmach/orb"
-	"github.com/paulmach/orb/geo"
 	"github.com/qedus/osmpbf"
 )
 
@@ -258,7 +256,7 @@ func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64, skipD
 			log.Fatalf("Failed to query zones from database: %v", err)
 		}
 
-		err = utils.ExportZonesToGeoJSON(zones, "output_zones.geojson", true)
+		err = utils.ExportZonesToGeoJSON(zones, "output_zones.geojson", false, false)
 		if err != nil {
 			log.Fatalf("Failed to export zones: %v", err)
 		}
@@ -338,7 +336,7 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	testZone := p.createTestZone()
 
 	// Run the adaptive zone subdivision algorithm
-	if err := p.runAdaptiveZoneSubdivision(zones, testZone); err != nil {
+	if err := p.runAdaptiveZoneSubdivision(&zones, testZone); err != nil {
 		return fmt.Errorf("adaptive zone subdivision failed: %w", err)
 	}
 
@@ -353,33 +351,6 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	}
 
 	return nil
-}
-
-// prepareZonesForProcessing prepares zones and creates spatial index
-func (p *OSMProcessor) prepareZonesForProcessing(zones []*model.Zone) (*rtreego.Rtree, error) {
-	// Create spatial index for zones to optimize lookups
-	zoneIndex := rtreego.NewTree(2, 25, 50) // 2D index with min 25, max 50 entries per node
-
-	for _, zone := range zones {
-		if err := p.prepareZoneGeometry(zone); err != nil {
-			return nil, fmt.Errorf("failed to prepare zone %s: %w", zone.ID, err)
-		}
-
-		p.initializeZoneBuildingStats(zone)
-
-		// Create a spatial object for this zone
-		zoneSpatial := &ZoneSpatial{
-			Zone:        zone,
-			Polygon:     zone.Polygon,
-			BoundingBox: zone.BoundingBox,
-		}
-
-		// Add to index
-		zoneIndex.Insert(zoneSpatial)
-	}
-
-	log.Printf("Created spatial index for %d zones", len(zones))
-	return zoneIndex, nil
 }
 
 // prepareZoneGeometry creates polygon and bounding box for zone if not already created
@@ -408,73 +379,6 @@ func (p *OSMProcessor) initializeZoneBuildingStats(zone *model.Zone) {
 	if zone.Buildings.BuildingAreas == nil {
 		zone.Buildings.BuildingAreas = make(map[string]float64)
 	}
-}
-
-// processAllBuildings processes each building and distributes it to affected zones
-func (p *OSMProcessor) processAllBuildings(zoneIndex *rtreego.Rtree, testZone *model.Zone) (*ProcessingStats, error) {
-	stats := &ProcessingStats{
-		TotalBuildings:   len(p.Buildings),
-		ZoneDependencies: NewZoneDependencies(),
-	}
-
-	for i, building := range p.Buildings {
-		if err := p.processSingleBuilding(building, zoneIndex, testZone, stats); err != nil {
-			return nil, fmt.Errorf("failed to process building %d: %w", building.ID, err)
-		}
-
-		// Log progress
-		if (i+1)%20000 == 0 {
-			log.Printf("Processed %d/%d buildings...", i+1, len(p.Buildings))
-		}
-	}
-
-	log.Printf("Built zone dependency map with %d connections", stats.ZoneDependencies.getConnectionCount())
-	return stats, nil
-}
-
-// processSingleBuilding processes a single building and distributes it to affected zones
-func (p *OSMProcessor) processSingleBuilding(building *model.Building, zoneIndex *rtreego.Rtree, testZone *model.Zone, stats *ProcessingStats) error {
-	// Calculate building properties
-	buildingArea := geo.Area(building.Outline) * float64(building.Levels)
-	gameCategory := mappers.MapBuildingCategory(building.Type)
-
-	// Get building configuration
-	buildingConfig := mappers.GetBuildingEffectsConfig(gameCategory)
-	if buildingConfig == nil {
-		buildingConfig = &mappers.BuildingTypeConfig{
-			ExtraRadiusKf: 1.0,
-			Weight:        1,
-		}
-	}
-
-	// Calculate influence radius
-	influenceRadius := utils.CalculateBuildingInfluenceRadius(buildingArea, buildingConfig.ExtraRadiusKf)
-
-	// Find all zones within the influence radius
-	zonesInRadius := p.findZonesInRadius(zoneIndex, building.CentroidLon, building.CentroidLat, influenceRadius)
-
-	if len(zonesInRadius) > 0 {
-		// Count buildings that are distributed across multiple zones
-		if len(zonesInRadius) > 1 {
-			stats.BuildingsDistributedToMultipleZones++
-
-			// Build dependency map for multi-zone buildings
-			zoneIDs := make([]string, len(zonesInRadius))
-			for i, zoneSpatial := range zonesInRadius {
-				zoneIDs[i] = zoneSpatial.Zone.ID
-			}
-			stats.ZoneDependencies.addMultiZoneBuilding(zoneIDs)
-		}
-
-		// Distribute building to zones
-		p.distributeBuildingToZones(building, buildingArea, gameCategory, zonesInRadius)
-		stats.ProcessedBuildings++
-	}
-
-	// Add building to test zone with full area and game category
-	p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
-
-	return nil
 }
 
 // distributeBuildingToZones distributes a building's area and stats to affected zones
@@ -536,7 +440,7 @@ func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *
 func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, exportZonesJSON bool, exportBuildingsJSON bool, testZone *model.Zone) error {
 	// Export zones to GeoJSON if enabled
 	if exportZonesJSON {
-		if err := utils.ExportZonesToGeoJSON(zones, "processed_zones.geojson", true); err != nil {
+		if err := utils.ExportZonesToGeoJSON(zones, "processed_zones.geojson", false, false); err != nil {
 			log.Printf("Warning: Failed to export zones to GeoJSON: %v", err)
 		}
 	}

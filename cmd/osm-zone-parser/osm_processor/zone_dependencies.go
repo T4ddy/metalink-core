@@ -73,15 +73,6 @@ func (zd *ZoneDependencies) getConnectedZones(targetZoneIDs []string) []string {
 	return result
 }
 
-// getConnectionCount returns the total number of zone connections
-func (zd *ZoneDependencies) getConnectionCount() int {
-	totalConnections := 0
-	for _, connections := range zd.connections {
-		totalConnections += len(connections)
-	}
-	return totalConnections / 2 // Divide by 2 because connections are bidirectional
-}
-
 // findConnectedZones finds all zones connected to overweight zones through building dependencies
 func (p *OSMProcessor) findConnectedZones(overweightZoneIDs []string, dependencies *ZoneDependencies) []string {
 	if len(overweightZoneIDs) == 0 {

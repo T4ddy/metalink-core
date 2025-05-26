@@ -12,7 +12,7 @@ import (
 )
 
 // processRecalculationNeededZones processes only zones marked for recalculation
-func (p *OSMProcessor) processRecalculationNeededZones(zones []*model.Zone, zoneIndex *rtreego.Rtree, testZone *model.Zone) (*ProcessingStats, error) {
+func (p *OSMProcessor) processRecalculationNeededZones(zones []*model.Zone, zoneIndex *rtreego.Rtree) (*ProcessingStats, error) {
 	stats := &ProcessingStats{
 		TotalBuildings:   len(p.Buildings),
 		ZoneDependencies: NewZoneDependencies(),
@@ -29,7 +29,7 @@ func (p *OSMProcessor) processRecalculationNeededZones(zones []*model.Zone, zone
 
 	// Process each building
 	for i, building := range p.Buildings {
-		if err := p.processSingleBuildingForRecalcZones(building, zones, zoneIndex, testZone, stats); err != nil {
+		if err := p.processSingleBuildingForRecalcZones(building, zoneIndex, stats); err != nil {
 			return nil, fmt.Errorf("failed to process building %d: %w", building.ID, err)
 		}
 
@@ -51,7 +51,7 @@ func (p *OSMProcessor) processRecalculationNeededZones(zones []*model.Zone, zone
 }
 
 // processSingleBuildingForRecalcZones processes a building only for zones needing recalculation
-func (p *OSMProcessor) processSingleBuildingForRecalcZones(building *model.Building, zones []*model.Zone, zoneIndex *rtreego.Rtree, testZone *model.Zone, stats *ProcessingStats) error {
+func (p *OSMProcessor) processSingleBuildingForRecalcZones(building *model.Building, zoneIndex *rtreego.Rtree, stats *ProcessingStats) error {
 	// Calculate building properties FIRST
 	buildingArea := geo.Area(building.Outline) * float64(building.Levels)
 	gameCategory := mappers.MapBuildingCategory(building.Type)
