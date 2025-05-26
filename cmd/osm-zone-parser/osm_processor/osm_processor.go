@@ -356,8 +356,11 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	overweightZoneIDs := p.findOverweightZones(zones, weightThreshold)
 
 	if len(overweightZoneIDs) > 0 {
-		log.Printf("Found %d zones that exceed weight threshold and need subdivision", len(overweightZoneIDs))
-		// TODO: In next step - handle overweight zones (split into 4, restore from backups, etc.)
+		// Find all connected zones that need to be processed together
+		connectedZoneIDs := p.findConnectedZones(overweightZoneIDs, stats.ZoneDependencies)
+		log.Printf("Total zones to process (including connected): %d", len(connectedZoneIDs))
+
+		// TODO: In next step - handle connected zones (split into 4, restore from backups, etc.)
 	} else {
 		log.Printf("All zones are within weight threshold - no subdivision needed")
 	}
@@ -380,6 +383,7 @@ type ProcessingStats struct {
 	ProcessedBuildings                  int
 	BuildingsDistributedToMultipleZones int
 	TotalBuildings                      int
+	ZoneDependencies                    *ZoneDependencies
 }
 
 // prepareZonesForProcessing prepares zones and creates spatial index
@@ -440,7 +444,8 @@ func (p *OSMProcessor) initializeZoneBuildingStats(zone *model.Zone) {
 // processAllBuildings processes each building and distributes it to affected zones
 func (p *OSMProcessor) processAllBuildings(zoneIndex *rtreego.Rtree, testZone *model.Zone) (*ProcessingStats, error) {
 	stats := &ProcessingStats{
-		TotalBuildings: len(p.Buildings),
+		TotalBuildings:   len(p.Buildings),
+		ZoneDependencies: NewZoneDependencies(),
 	}
 
 	for i, building := range p.Buildings {
@@ -454,6 +459,7 @@ func (p *OSMProcessor) processAllBuildings(zoneIndex *rtreego.Rtree, testZone *m
 		}
 	}
 
+	log.Printf("Built zone dependency map with %d connections", stats.ZoneDependencies.getConnectionCount())
 	return stats, nil
 }
 
@@ -482,6 +488,13 @@ func (p *OSMProcessor) processSingleBuilding(building *model.Building, zoneIndex
 		// Count buildings that are distributed across multiple zones
 		if len(zonesInRadius) > 1 {
 			stats.BuildingsDistributedToMultipleZones++
+
+			// Build dependency map for multi-zone buildings
+			zoneIDs := make([]string, len(zonesInRadius))
+			for i, zoneSpatial := range zonesInRadius {
+				zoneIDs[i] = zoneSpatial.Zone.ID
+			}
+			stats.ZoneDependencies.addMultiZoneBuilding(zoneIDs)
 		}
 
 		// Distribute building to zones
@@ -556,8 +569,6 @@ func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, expor
 	if exportZonesJSON {
 		if err := utils.ExportZonesToGeoJSON(zones, "processed_zones.geojson", true); err != nil {
 			log.Printf("Warning: Failed to export zones to GeoJSON: %v", err)
-		} else {
-			log.Printf("Successfully exported processed zones to processed_zones.geojson")
 		}
 	}
 
