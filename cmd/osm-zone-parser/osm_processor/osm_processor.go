@@ -37,6 +37,14 @@ func NewOSMProcessor() *OSMProcessor {
 	}
 }
 
+// ProcessingStats holds statistics about the building processing
+type ProcessingStats struct {
+	ProcessedBuildings                  int
+	BuildingsDistributedToMultipleZones int
+	TotalBuildings                      int
+	ZoneDependencies                    *ZoneDependencies
+}
+
 // ProcessOSMFile processes an OSM PBF file and extracts buildings
 func (p *OSMProcessor) ProcessOSMFile(osmFilePath string) error {
 	log.Printf("Processing OSM file: %s", osmFilePath)
@@ -378,14 +386,6 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	return nil
 }
 
-// ProcessingStats holds statistics about the building processing
-type ProcessingStats struct {
-	ProcessedBuildings                  int
-	BuildingsDistributedToMultipleZones int
-	TotalBuildings                      int
-	ZoneDependencies                    *ZoneDependencies
-}
-
 // prepareZonesForProcessing prepares zones and creates spatial index
 func (p *OSMProcessor) prepareZonesForProcessing(zones []*model.Zone) (*rtreego.Rtree, error) {
 	// Create spatial index for zones to optimize lookups
@@ -616,121 +616,4 @@ func (p *OSMProcessor) findZonesInRadius(zoneIndex *rtreego.Rtree, centerLon, ce
 	}
 
 	return intersectingZones
-}
-
-// ZoneBackup represents a backup copy of a zone before modifications
-type ZoneBackup struct {
-	Zone      *model.Zone
-	Buildings model.BuildingStats
-}
-
-// ZoneDependencyMap tracks which buildings affect which zones
-type ZoneDependencyMap map[string][]string // buildingID -> []zoneID
-
-// createZoneBackups creates clean copies of zones before processing starts
-func (p *OSMProcessor) createZoneBackups(zones []*model.Zone) map[string]*ZoneBackup {
-	log.Printf("Creating backup copies of %d zones before processing", len(zones))
-
-	backups := make(map[string]*ZoneBackup, len(zones))
-
-	for _, zone := range zones {
-		// Create a deep copy of the zone
-		zoneCopy := &model.Zone{
-			ID:                zone.ID,
-			Name:              zone.Name,
-			TopLeftLatLon:     make([]float64, len(zone.TopLeftLatLon)),
-			TopRightLatLon:    make([]float64, len(zone.TopRightLatLon)),
-			BottomLeftLatLon:  make([]float64, len(zone.BottomLeftLatLon)),
-			BottomRightLatLon: make([]float64, len(zone.BottomRightLatLon)),
-			UpdatedAt:         zone.UpdatedAt,
-			CreatedAt:         zone.CreatedAt,
-			DeletedAt:         zone.DeletedAt,
-			Polygon:           zone.Polygon,
-			BoundingBox:       zone.BoundingBox,
-		}
-
-		// Copy coordinate slices
-		copy(zoneCopy.TopLeftLatLon, zone.TopLeftLatLon)
-		copy(zoneCopy.TopRightLatLon, zone.TopRightLatLon)
-		copy(zoneCopy.BottomLeftLatLon, zone.BottomLeftLatLon)
-		copy(zoneCopy.BottomRightLatLon, zone.BottomRightLatLon)
-
-		// Create a deep copy of building stats
-		buildingStatsCopy := model.BuildingStats{
-			SingleFloorCount:     zone.Buildings.SingleFloorCount,
-			SingleFloorTotalArea: zone.Buildings.SingleFloorTotalArea,
-			LowRiseCount:         zone.Buildings.LowRiseCount,
-			LowRiseTotalArea:     zone.Buildings.LowRiseTotalArea,
-			HighRiseCount:        zone.Buildings.HighRiseCount,
-			HighRiseTotalArea:    zone.Buildings.HighRiseTotalArea,
-			SkyscraperCount:      zone.Buildings.SkyscraperCount,
-			SkyscraperTotalArea:  zone.Buildings.SkyscraperTotalArea,
-			TotalCount:           zone.Buildings.TotalCount,
-			TotalArea:            zone.Buildings.TotalArea,
-			BuildingTypes:        make(map[string]int),
-			BuildingAreas:        make(map[string]float64),
-		}
-
-		// Copy building type maps
-		for buildingType, count := range zone.Buildings.BuildingTypes {
-			buildingStatsCopy.BuildingTypes[buildingType] = count
-		}
-		for buildingType, area := range zone.Buildings.BuildingAreas {
-			buildingStatsCopy.BuildingAreas[buildingType] = area
-		}
-
-		// Set the copy as zone's buildings
-		zoneCopy.Buildings = buildingStatsCopy
-
-		// Create backup entry
-		backup := &ZoneBackup{
-			Zone:      zoneCopy,
-			Buildings: buildingStatsCopy,
-		}
-
-		backups[zone.ID] = backup
-	}
-
-	log.Printf("Successfully created %d zone backups", len(backups))
-	return backups
-}
-
-// calculateZoneWeight calculates the total weight of a zone based on building areas and types
-func (p *OSMProcessor) calculateZoneWeight(zone *model.Zone) float64 {
-	var totalWeight float64
-
-	// Calculate weight for each building type
-	for buildingType, area := range zone.Buildings.BuildingAreas {
-		// Get weight coefficient for this building type
-		weight := mappers.GetBuildingWeight(buildingType)
-		if weight == 0 {
-			weight = 1 // Default weight if not found in config
-		}
-
-		// Weight = area * weight_coefficient
-		buildingWeight := area * weight
-		totalWeight += buildingWeight
-	}
-
-	return totalWeight
-}
-
-// findOverweightZones finds zones that exceed the weight threshold
-func (p *OSMProcessor) findOverweightZones(zones []*model.Zone, weightThreshold float64) []string {
-	log.Printf("Analyzing %d zones for weight threshold %.2f", len(zones), weightThreshold)
-
-	var overweightZoneIDs []string
-
-	for _, zone := range zones {
-		zoneWeight := p.calculateZoneWeight(zone)
-
-		if zoneWeight > weightThreshold {
-			overweightZoneIDs = append(overweightZoneIDs, zone.ID)
-			log.Printf("Zone %s exceeds threshold: weight %.2f > %.2f",
-				zone.ID, zoneWeight, weightThreshold)
-		}
-	}
-
-	log.Printf("Found %d zones exceeding weight threshold", len(overweightZoneIDs))
-	return overweightZoneIDs
 }

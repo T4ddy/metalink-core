@@ -164,6 +164,9 @@ type Zone struct {
 	// Cached data for quick access
 	Polygon     *orb.Polygon // Pre-parsed polygon for quick calculations
 	BoundingBox *orb.Bound   // Bounds of the polygon for quick checks
+
+	// Processing flags (not stored in DB)
+	RecalculateNeeded bool // Flag to mark zones that need recalculation
 }
 
 // ZoneFromPG creates a Zone from ZonePG
