@@ -311,51 +311,88 @@ func (p *OSMProcessor) calculateBuildingsBoundingBox() BoundingBox {
 	}
 }
 
-// UpdateZonesWithBuildingStats updates zones with building statistics using spatial indexing and influence radius
+// UpdateZonesWithBuildingStats updates zones with building statistics
 func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool, clearZones bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
 
 	log.Printf("Updating %d zones with building statistics from %d buildings", len(zones), len(p.Buildings))
-	log.Printf("Using influence radius calculation with game type mapping")
 
-	// Clear all zones from database if requested and not skipping DB
+	// Clear zones from database if requested
 	if clearZones && !skipDB {
 		if err := parser_db.ClearAllZonesFromDB(); err != nil {
 			return fmt.Errorf("failed to clear zones from database: %w", err)
 		}
 	}
 
+	// Prepare zones and create spatial index
+	zoneIndex, err := p.prepareZonesForProcessing(zones)
+	if err != nil {
+		return err
+	}
+
+	// Create backups of all zones before processing starts
+	zoneBackups := p.createZoneBackups(zones)
+	log.Printf("Created backups for %d zones before applying building modifications", len(zoneBackups))
+
+	// Create test zone for all buildings
+	testZone := p.createTestZone()
+
+	// Process all buildings
+	stats, err := p.processAllBuildings(zoneIndex, testZone)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Distributed %d buildings across zones using influence radius", stats.ProcessedBuildings)
+	log.Printf("Buildings distributed to multiple zones: %d out of %d total (%.2f%%)",
+		stats.BuildingsDistributedToMultipleZones, stats.TotalBuildings,
+		float64(stats.BuildingsDistributedToMultipleZones)/float64(stats.TotalBuildings)*100)
+
+	// Calculate weights and find overweight zones using configured threshold
+	weightThreshold := mappers.GetWeightThreshold()
+	log.Printf("Using weight threshold: %.2f", weightThreshold)
+	overweightZoneIDs := p.findOverweightZones(zones, weightThreshold)
+
+	if len(overweightZoneIDs) > 0 {
+		log.Printf("Found %d zones that exceed weight threshold and need subdivision", len(overweightZoneIDs))
+		// TODO: In next step - handle overweight zones (split into 4, restore from backups, etc.)
+	} else {
+		log.Printf("All zones are within weight threshold - no subdivision needed")
+	}
+
+	// Save results to database
+	if err := p.saveProcessingResultsToDB(zones, testZone, skipDB); err != nil {
+		return err
+	}
+
+	// Export results to files
+	if err := p.saveProcessingResultsToGeoJSON(zones, exportZonesJSON, exportBuildingsJSON, testZone); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ProcessingStats holds statistics about the building processing
+type ProcessingStats struct {
+	ProcessedBuildings                  int
+	BuildingsDistributedToMultipleZones int
+	TotalBuildings                      int
+}
+
+// prepareZonesForProcessing prepares zones and creates spatial index
+func (p *OSMProcessor) prepareZonesForProcessing(zones []*model.Zone) (*rtreego.Rtree, error) {
 	// Create spatial index for zones to optimize lookups
 	zoneIndex := rtreego.NewTree(2, 25, 50) // 2D index with min 25, max 50 entries per node
 
-	// First, prepare all zones and add them to the spatial index
-	zoneSpatials := make(map[string]*ZoneSpatial, len(zones))
-
 	for _, zone := range zones {
-		// Create polygon from corners if not already created
-		if zone.Polygon == nil {
-			ring := orb.Ring{
-				orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // [lon, lat]
-				orb.Point{zone.TopRightLatLon[1], zone.TopRightLatLon[0]},       // [lon, lat]
-				orb.Point{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}, // [lon, lat]
-				orb.Point{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]},   // [lon, lat]
-				orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // Close the ring
-			}
-			polygon := orb.Polygon{ring}
-			bound := polygon.Bound()
-			zone.Polygon = &polygon
-			zone.BoundingBox = &bound
+		if err := p.prepareZoneGeometry(zone); err != nil {
+			return nil, fmt.Errorf("failed to prepare zone %s: %w", zone.ID, err)
 		}
 
-		// Initialize building stats with empty maps if not set
-		if zone.Buildings.BuildingTypes == nil {
-			zone.Buildings.BuildingTypes = make(map[string]int)
-		}
-		if zone.Buildings.BuildingAreas == nil {
-			zone.Buildings.BuildingAreas = make(map[string]float64)
-		}
+		p.initializeZoneBuildingStats(zone)
 
 		// Create a spatial object for this zone
 		zoneSpatial := &ZoneSpatial{
@@ -366,80 +403,50 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 
 		// Add to index
 		zoneIndex.Insert(zoneSpatial)
-		zoneSpatials[zone.ID] = zoneSpatial
 	}
 
 	log.Printf("Created spatial index for %d zones", len(zones))
+	return zoneIndex, nil
+}
 
-	// Create test zone for all buildings
-	testZone := p.createTestZone()
+// prepareZoneGeometry creates polygon and bounding box for zone if not already created
+func (p *OSMProcessor) prepareZoneGeometry(zone *model.Zone) error {
+	if zone.Polygon == nil {
+		ring := orb.Ring{
+			orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // [lon, lat]
+			orb.Point{zone.TopRightLatLon[1], zone.TopRightLatLon[0]},       // [lon, lat]
+			orb.Point{zone.BottomRightLatLon[1], zone.BottomRightLatLon[0]}, // [lon, lat]
+			orb.Point{zone.BottomLeftLatLon[1], zone.BottomLeftLatLon[0]},   // [lon, lat]
+			orb.Point{zone.TopLeftLatLon[1], zone.TopLeftLatLon[0]},         // Close the ring
+		}
+		polygon := orb.Polygon{ring}
+		bound := polygon.Bound()
+		zone.Polygon = &polygon
+		zone.BoundingBox = &bound
+	}
+	return nil
+}
 
-	// Process each building with influence radius
-	processedBuildings := 0
-	buildingsDistributedToMultipleZones := 0
+// initializeZoneBuildingStats initializes building stats maps if not set
+func (p *OSMProcessor) initializeZoneBuildingStats(zone *model.Zone) {
+	if zone.Buildings.BuildingTypes == nil {
+		zone.Buildings.BuildingTypes = make(map[string]int)
+	}
+	if zone.Buildings.BuildingAreas == nil {
+		zone.Buildings.BuildingAreas = make(map[string]float64)
+	}
+}
+
+// processAllBuildings processes each building and distributes it to affected zones
+func (p *OSMProcessor) processAllBuildings(zoneIndex *rtreego.Rtree, testZone *model.Zone) (*ProcessingStats, error) {
+	stats := &ProcessingStats{
+		TotalBuildings: len(p.Buildings),
+	}
+
 	for i, building := range p.Buildings {
-		// Calculate approximate building area in square meters
-		buildingArea := geo.Area(building.Outline) * float64(building.Levels)
-
-		// Map OSM building type to game category
-		gameCategory := mappers.MapBuildingCategory(building.Type)
-
-		// Get building configuration
-		buildingConfig := mappers.GetBuildingEffectsConfig(gameCategory)
-		if buildingConfig == nil {
-			// Use default if no config found
-			buildingConfig = &mappers.BuildingTypeConfig{
-				ExtraRadiusKf: 1.0,
-				Weight:        1,
-			}
+		if err := p.processSingleBuilding(building, zoneIndex, testZone, stats); err != nil {
+			return nil, fmt.Errorf("failed to process building %d: %w", building.ID, err)
 		}
-
-		// Calculate influence radius
-		influenceRadius := utils.CalculateBuildingInfluenceRadius(buildingArea, buildingConfig.ExtraRadiusKf)
-		// log.Printf("%v >> %.2f m² >> %.2f m", i+1, buildingArea, influenceRadius)
-
-		// Find all zones within the influence radius
-		zonesInRadius := p.findZonesInRadius(zoneIndex, building.CentroidLon, building.CentroidLat, influenceRadius)
-
-		if len(zonesInRadius) > 0 {
-			// Count buildings that are distributed across multiple zones
-			if len(zonesInRadius) > 1 {
-				buildingsDistributedToMultipleZones++
-			}
-
-			// Distribute building area equally among all affected zones
-			areaPerZone := buildingArea / float64(len(zonesInRadius))
-
-			for _, zoneSpatial := range zonesInRadius {
-				zone := zoneSpatial.Zone
-
-				// Update building count and area by game type (not OSM type)
-				zone.Buildings.BuildingTypes[gameCategory]++
-				zone.Buildings.BuildingAreas[gameCategory] += areaPerZone
-				zone.Buildings.TotalCount++
-				zone.Buildings.TotalArea += areaPerZone
-
-				// Update stats based on building height
-				if building.Levels <= 1 {
-					zone.Buildings.SingleFloorCount++
-					zone.Buildings.SingleFloorTotalArea += areaPerZone
-				} else if building.Levels >= 2 && building.Levels <= 9 {
-					zone.Buildings.LowRiseCount++
-					zone.Buildings.LowRiseTotalArea += areaPerZone
-				} else if building.Levels >= 10 && building.Levels <= 29 {
-					zone.Buildings.HighRiseCount++
-					zone.Buildings.HighRiseTotalArea += areaPerZone
-				} else if building.Levels >= 30 {
-					zone.Buildings.SkyscraperCount++
-					zone.Buildings.SkyscraperTotalArea += areaPerZone
-				}
-			}
-
-			processedBuildings++
-		}
-
-		// Add building to test zone with full area and game category
-		p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
 
 		// Log progress
 		if (i+1)%20000 == 0 {
@@ -447,32 +454,107 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		}
 	}
 
-	log.Printf("Distributed %d buildings across zones using influence radius", processedBuildings)
-	log.Printf("Buildings distributed to multiple zones: %d out of %d total (%.2f%%)",
-		buildingsDistributedToMultipleZones, len(p.Buildings),
-		float64(buildingsDistributedToMultipleZones)/float64(len(p.Buildings))*100)
-	log.Printf("Created test zone with %d buildings", testZone.Buildings.TotalCount)
+	return stats, nil
+}
+
+// processSingleBuilding processes a single building and distributes it to affected zones
+func (p *OSMProcessor) processSingleBuilding(building *model.Building, zoneIndex *rtreego.Rtree, testZone *model.Zone, stats *ProcessingStats) error {
+	// Calculate building properties
+	buildingArea := geo.Area(building.Outline) * float64(building.Levels)
+	gameCategory := mappers.MapBuildingCategory(building.Type)
+
+	// Get building configuration
+	buildingConfig := mappers.GetBuildingEffectsConfig(gameCategory)
+	if buildingConfig == nil {
+		buildingConfig = &mappers.BuildingTypeConfig{
+			ExtraRadiusKf: 1.0,
+			Weight:        1,
+		}
+	}
+
+	// Calculate influence radius
+	influenceRadius := utils.CalculateBuildingInfluenceRadius(buildingArea, buildingConfig.ExtraRadiusKf)
+
+	// Find all zones within the influence radius
+	zonesInRadius := p.findZonesInRadius(zoneIndex, building.CentroidLon, building.CentroidLat, influenceRadius)
+
+	if len(zonesInRadius) > 0 {
+		// Count buildings that are distributed across multiple zones
+		if len(zonesInRadius) > 1 {
+			stats.BuildingsDistributedToMultipleZones++
+		}
+
+		// Distribute building to zones
+		p.distributeBuildingToZones(building, buildingArea, gameCategory, zonesInRadius)
+		stats.ProcessedBuildings++
+	}
+
+	// Add building to test zone with full area and game category
+	p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
+
+	return nil
+}
+
+// distributeBuildingToZones distributes a building's area and stats to affected zones
+func (p *OSMProcessor) distributeBuildingToZones(building *model.Building, buildingArea float64, gameCategory string, zonesInRadius []*ZoneSpatial) {
+	// Distribute building area equally among all affected zones
+	areaPerZone := buildingArea / float64(len(zonesInRadius))
+
+	for _, zoneSpatial := range zonesInRadius {
+		zone := zoneSpatial.Zone
+
+		// Update building count and area by game type (not OSM type)
+		zone.Buildings.BuildingTypes[gameCategory]++
+		zone.Buildings.BuildingAreas[gameCategory] += areaPerZone
+		zone.Buildings.TotalCount++
+		zone.Buildings.TotalArea += areaPerZone
+
+		// Update stats based on building height
+		p.updateZoneHeightStats(zone, building, areaPerZone)
+	}
+}
+
+// updateZoneHeightStats updates zone statistics based on building height
+func (p *OSMProcessor) updateZoneHeightStats(zone *model.Zone, building *model.Building, area float64) {
+	if building.Levels <= 1 {
+		zone.Buildings.SingleFloorCount++
+		zone.Buildings.SingleFloorTotalArea += area
+	} else if building.Levels >= 2 && building.Levels <= 9 {
+		zone.Buildings.LowRiseCount++
+		zone.Buildings.LowRiseTotalArea += area
+	} else if building.Levels >= 10 && building.Levels <= 29 {
+		zone.Buildings.HighRiseCount++
+		zone.Buildings.HighRiseTotalArea += area
+	} else if building.Levels >= 30 {
+		zone.Buildings.SkyscraperCount++
+		zone.Buildings.SkyscraperTotalArea += area
+	}
+}
+
+// saveProcessingResultsToDB saves updated zones and test zone to database
+func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *model.Zone, skipDB bool) error {
+	if skipDB {
+		return nil
+	}
 
 	// Save updated zones to database
-	if !skipDB {
-		err := parser_db.SaveUpdatedZonesToDB(zones)
-		if err != nil {
-			return err
-		}
+	if err := parser_db.SaveUpdatedZonesToDB(zones); err != nil {
+		return fmt.Errorf("failed to save zones to database: %w", err)
 	}
 
 	// Save test zone separately
-	if !skipDB {
-		err := p.saveTestZoneToDB(testZone)
-		if err != nil {
-			return err
-		}
+	if err := p.saveTestZoneToDB(testZone); err != nil {
+		return fmt.Errorf("failed to save test zone: %w", err)
 	}
 
+	return nil
+}
+
+// saveProcessingResultsToGeoJSON exports processing results to various file formats
+func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, exportZonesJSON bool, exportBuildingsJSON bool, testZone *model.Zone) error {
 	// Export zones to GeoJSON if enabled
 	if exportZonesJSON {
-		err := utils.ExportZonesToGeoJSON(zones, "processed_zones.geojson", true)
-		if err != nil {
+		if err := utils.ExportZonesToGeoJSON(zones, "processed_zones.geojson", true); err != nil {
 			log.Printf("Warning: Failed to export zones to GeoJSON: %v", err)
 		} else {
 			log.Printf("Successfully exported processed zones to processed_zones.geojson")
@@ -481,16 +563,15 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 
 	// Export buildings as squares to GeoJSON if enabled
 	if exportBuildingsJSON {
-		err := utils.ExportBuildingsToGeoJSON(p.Buildings, "buildings.geojson", 0)
-		if err != nil {
+		if err := utils.ExportBuildingsToGeoJSON(p.Buildings, "buildings.geojson", 0); err != nil {
 			log.Printf("Warning: Failed to export buildings to GeoJSON: %v", err)
 		} else {
 			log.Printf("Successfully exported buildings to buildings.geojson")
 		}
 	}
 
-	err := p.SaveTestZoneToJSON(testZone, "test_zone.json")
-	if err != nil {
+	// Save test zone to JSON
+	if err := p.SaveTestZoneToJSON(testZone, "test_zone.json"); err != nil {
 		log.Printf("Warning: Failed to save test zone to JSON: %v", err)
 	}
 
@@ -524,4 +605,121 @@ func (p *OSMProcessor) findZonesInRadius(zoneIndex *rtreego.Rtree, centerLon, ce
 	}
 
 	return intersectingZones
+}
+
+// ZoneBackup represents a backup copy of a zone before modifications
+type ZoneBackup struct {
+	Zone      *model.Zone
+	Buildings model.BuildingStats
+}
+
+// ZoneDependencyMap tracks which buildings affect which zones
+type ZoneDependencyMap map[string][]string // buildingID -> []zoneID
+
+// createZoneBackups creates clean copies of zones before processing starts
+func (p *OSMProcessor) createZoneBackups(zones []*model.Zone) map[string]*ZoneBackup {
+	log.Printf("Creating backup copies of %d zones before processing", len(zones))
+
+	backups := make(map[string]*ZoneBackup, len(zones))
+
+	for _, zone := range zones {
+		// Create a deep copy of the zone
+		zoneCopy := &model.Zone{
+			ID:                zone.ID,
+			Name:              zone.Name,
+			TopLeftLatLon:     make([]float64, len(zone.TopLeftLatLon)),
+			TopRightLatLon:    make([]float64, len(zone.TopRightLatLon)),
+			BottomLeftLatLon:  make([]float64, len(zone.BottomLeftLatLon)),
+			BottomRightLatLon: make([]float64, len(zone.BottomRightLatLon)),
+			UpdatedAt:         zone.UpdatedAt,
+			CreatedAt:         zone.CreatedAt,
+			DeletedAt:         zone.DeletedAt,
+			Polygon:           zone.Polygon,
+			BoundingBox:       zone.BoundingBox,
+		}
+
+		// Copy coordinate slices
+		copy(zoneCopy.TopLeftLatLon, zone.TopLeftLatLon)
+		copy(zoneCopy.TopRightLatLon, zone.TopRightLatLon)
+		copy(zoneCopy.BottomLeftLatLon, zone.BottomLeftLatLon)
+		copy(zoneCopy.BottomRightLatLon, zone.BottomRightLatLon)
+
+		// Create a deep copy of building stats
+		buildingStatsCopy := model.BuildingStats{
+			SingleFloorCount:     zone.Buildings.SingleFloorCount,
+			SingleFloorTotalArea: zone.Buildings.SingleFloorTotalArea,
+			LowRiseCount:         zone.Buildings.LowRiseCount,
+			LowRiseTotalArea:     zone.Buildings.LowRiseTotalArea,
+			HighRiseCount:        zone.Buildings.HighRiseCount,
+			HighRiseTotalArea:    zone.Buildings.HighRiseTotalArea,
+			SkyscraperCount:      zone.Buildings.SkyscraperCount,
+			SkyscraperTotalArea:  zone.Buildings.SkyscraperTotalArea,
+			TotalCount:           zone.Buildings.TotalCount,
+			TotalArea:            zone.Buildings.TotalArea,
+			BuildingTypes:        make(map[string]int),
+			BuildingAreas:        make(map[string]float64),
+		}
+
+		// Copy building type maps
+		for buildingType, count := range zone.Buildings.BuildingTypes {
+			buildingStatsCopy.BuildingTypes[buildingType] = count
+		}
+		for buildingType, area := range zone.Buildings.BuildingAreas {
+			buildingStatsCopy.BuildingAreas[buildingType] = area
+		}
+
+		// Set the copy as zone's buildings
+		zoneCopy.Buildings = buildingStatsCopy
+
+		// Create backup entry
+		backup := &ZoneBackup{
+			Zone:      zoneCopy,
+			Buildings: buildingStatsCopy,
+		}
+
+		backups[zone.ID] = backup
+	}
+
+	log.Printf("Successfully created %d zone backups", len(backups))
+	return backups
+}
+
+// calculateZoneWeight calculates the total weight of a zone based on building areas and types
+func (p *OSMProcessor) calculateZoneWeight(zone *model.Zone) float64 {
+	var totalWeight float64
+
+	// Calculate weight for each building type
+	for buildingType, area := range zone.Buildings.BuildingAreas {
+		// Get weight coefficient for this building type
+		weight := mappers.GetBuildingWeight(buildingType)
+		if weight == 0 {
+			weight = 1 // Default weight if not found in config
+		}
+
+		// Weight = area * weight_coefficient
+		buildingWeight := area * weight
+		totalWeight += buildingWeight
+	}
+
+	return totalWeight
+}
+
+// findOverweightZones finds zones that exceed the weight threshold
+func (p *OSMProcessor) findOverweightZones(zones []*model.Zone, weightThreshold float64) []string {
+	log.Printf("Analyzing %d zones for weight threshold %.2f", len(zones), weightThreshold)
+
+	var overweightZoneIDs []string
+
+	for _, zone := range zones {
+		zoneWeight := p.calculateZoneWeight(zone)
+
+		if zoneWeight > weightThreshold {
+			overweightZoneIDs = append(overweightZoneIDs, zone.ID)
+			log.Printf("Zone %s exceeds threshold: weight %.2f > %.2f",
+				zone.ID, zoneWeight, weightThreshold)
+		}
+	}
+
+	log.Printf("Found %d zones exceeding weight threshold", len(overweightZoneIDs))
+	return overweightZoneIDs
 }

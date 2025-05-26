@@ -28,6 +28,7 @@ type BuildingTypeConfig struct {
 type BuildingEffectsConfig struct {
 	BuildingBaseRadius    float64                       `json:"building_base_radius"`
 	BaseAreaKf            float64                       `json:"base_area_kf"`
+	WeightThreshold       float64                       `json:"weight_threshold"`
 	BuildingEffectsConfig map[string]BuildingTypeConfig `json:"building_effects_config"`
 }
 
@@ -196,4 +197,17 @@ func GetBaseAreaKf() float64 {
 		return 0
 	}
 	return float64(config.BaseAreaKf)
+}
+
+// GetWeightThreshold returns the weight threshold for zone subdivision
+// Returns default value of 10000.0 if no configuration is found
+func GetWeightThreshold() float64 {
+	config := getBuildingEffectsConfig()
+	if config == nil {
+		return 10000.0 // Default threshold
+	}
+	if config.WeightThreshold <= 0 {
+		return 10000.0 // Default if not set or invalid
+	}
+	return config.WeightThreshold
 }

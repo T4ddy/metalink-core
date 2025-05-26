@@ -1,6 +1,7 @@
 {
   "building_base_radius": 15,
   "base_area_kf": 3,
+  "weight_threshold": 10000.0,
   "building_effects_config": {
     "residential": {
       "extra_radius_kf": 1,
