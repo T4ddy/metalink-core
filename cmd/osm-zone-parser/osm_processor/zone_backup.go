@@ -31,6 +31,7 @@ func (p *OSMProcessor) createZoneBackups(zones []*model.Zone) map[string]*ZoneBa
 			DeletedAt:         zone.DeletedAt,
 			Polygon:           zone.Polygon,
 			BoundingBox:       zone.BoundingBox,
+			RecalculateNeeded: zone.RecalculateNeeded, // Preserve the flag in backup
 		}
 
 		// Copy coordinate slices
@@ -77,6 +78,22 @@ func (p *OSMProcessor) createZoneBackups(zones []*model.Zone) map[string]*ZoneBa
 
 	log.Printf("Successfully created %d zone backups", len(backups))
 	return backups
+}
+
+// createZoneBackupsForRecalcNeeded creates backups only for zones that need recalculation
+func (p *OSMProcessor) createZoneBackupsForRecalcNeeded(zones []*model.Zone) map[string]*ZoneBackup {
+	// Filter zones that need recalculation
+	var zonesToBackup []*model.Zone
+	for _, zone := range zones {
+		if zone.RecalculateNeeded {
+			zonesToBackup = append(zonesToBackup, zone)
+		}
+	}
+
+	log.Printf("Found %d zones marked for recalculation out of %d total zones", len(zonesToBackup), len(zones))
+
+	// Use existing createZoneBackups function
+	return p.createZoneBackups(zonesToBackup)
 }
 
 // restoreZonesFromBackups restores zones from their backup copies

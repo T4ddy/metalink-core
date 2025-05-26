@@ -119,8 +119,6 @@ func (p *OSMProcessor) saveTestZoneToDB(testZone *model.Zone) error {
 
 // SaveTestZoneToJSON saves the test zone to a JSON file
 func (p *OSMProcessor) SaveTestZoneToJSON(testZone *model.Zone, outputFile string) error {
-	log.Printf("Saving test zone to JSON file: %s", outputFile)
-
 	// Convert model.Zone to GameZone for consistency with existing export functions
 	gameZone := parser_model.GameZone{
 		ID:                testZone.ID,

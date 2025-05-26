@@ -319,13 +319,13 @@ func (p *OSMProcessor) calculateBuildingsBoundingBox() BoundingBox {
 	}
 }
 
-// UpdateZonesWithBuildingStats updates zones with building statistics
+// UpdateZonesWithBuildingStats updates zones with building statistics using adaptive subdivision
 func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool, clearZones bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
 
-	log.Printf("Updating %d zones with building statistics from %d buildings", len(zones), len(p.Buildings))
+	log.Printf("Updating %d zones with building statistics from %d buildings using adaptive subdivision", len(zones), len(p.Buildings))
 
 	// Clear zones from database if requested
 	if clearZones && !skipDB {
@@ -334,43 +334,12 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		}
 	}
 
-	// Prepare zones and create spatial index
-	zoneIndex, err := p.prepareZonesForProcessing(zones)
-	if err != nil {
-		return err
-	}
-
-	// Create backups of all zones before processing starts
-	zoneBackups := p.createZoneBackups(zones)
-	log.Printf("Created backups for %d zones before applying building modifications", len(zoneBackups))
-
 	// Create test zone for all buildings
 	testZone := p.createTestZone()
 
-	// Process all buildings
-	stats, err := p.processAllBuildings(zoneIndex, testZone)
-	if err != nil {
-		return err
-	}
-
-	log.Printf("Distributed %d buildings across zones using influence radius", stats.ProcessedBuildings)
-	log.Printf("Buildings distributed to multiple zones: %d out of %d total (%.2f%%)",
-		stats.BuildingsDistributedToMultipleZones, stats.TotalBuildings,
-		float64(stats.BuildingsDistributedToMultipleZones)/float64(stats.TotalBuildings)*100)
-
-	// Calculate weights and find overweight zones using configured threshold
-	weightThreshold := mappers.GetWeightThreshold()
-	log.Printf("Using weight threshold: %.2f", weightThreshold)
-	overweightZoneIDs := p.findOverweightZones(zones, weightThreshold)
-
-	if len(overweightZoneIDs) > 0 {
-		// Find all connected zones that need to be processed together
-		connectedZoneIDs := p.findConnectedZones(overweightZoneIDs, stats.ZoneDependencies)
-		log.Printf("Total zones to process (including connected): %d", len(connectedZoneIDs))
-
-		// TODO: In next step - handle connected zones (split into 4, restore from backups, etc.)
-	} else {
-		log.Printf("All zones are within weight threshold - no subdivision needed")
+	// Run the adaptive zone subdivision algorithm
+	if err := p.runAdaptiveZoneSubdivision(zones, testZone); err != nil {
+		return fmt.Errorf("adaptive zone subdivision failed: %w", err)
 	}
 
 	// Save results to database

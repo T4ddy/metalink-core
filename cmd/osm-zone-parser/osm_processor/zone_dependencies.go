@@ -93,11 +93,5 @@ func (p *OSMProcessor) findConnectedZones(overweightZoneIDs []string, dependenci
 	log.Printf("Found %d zones connected to %d overweight zones through building dependencies",
 		len(connectedZones), len(overweightZoneIDs))
 
-	// Log some details about connections
-	newConnectedCount := len(connectedZones) - len(overweightZoneIDs)
-	if newConnectedCount > 0 {
-		log.Printf("Added %d additional zones due to building dependencies", newConnectedCount)
-	}
-
 	return connectedZones
 }

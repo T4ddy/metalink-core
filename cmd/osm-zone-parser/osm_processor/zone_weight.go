@@ -42,6 +42,5 @@ func (p *OSMProcessor) findOverweightZones(zones []*model.Zone, weightThreshold 
 		}
 	}
 
-	log.Printf("Found %d zones exceeding weight threshold", len(overweightZoneIDs))
 	return overweightZoneIDs
 }
