@@ -7,9 +7,12 @@ import (
 	"os"
 	"time"
 
+	mappers "metalink/cmd/osm-zone-parser/mappers"
 	parser_model "metalink/cmd/osm-zone-parser/models"
 	"metalink/internal/model"
 	pg "metalink/internal/postgres"
+
+	"github.com/paulmach/orb/geo"
 )
 
 // createTestZone creates a test zone that will contain all buildings
@@ -177,4 +180,26 @@ func (p *OSMProcessor) addBuildingToTestZoneWithGameType(building *model.Buildin
 		testZone.Buildings.SkyscraperCount++
 		testZone.Buildings.SkyscraperTotalArea += buildingArea
 	}
+}
+
+// fillTestZoneWithAllBuildings fills the test zone with all buildings (only called once)
+func (p *OSMProcessor) fillTestZoneWithAllBuildings(testZone *model.Zone) error {
+	log.Printf("Filling test zone with all %d buildings", len(p.Buildings))
+
+	for i, building := range p.Buildings {
+		// Calculate building properties
+		buildingArea := geo.Area(building.Outline) * float64(building.Levels)
+		gameCategory := mappers.MapBuildingCategory(building.Type)
+
+		// Add building to test zone with full area and game category
+		p.addBuildingToTestZoneWithGameType(building, buildingArea, gameCategory, testZone)
+
+		// Log progress
+		if (i+1)%20000 == 0 {
+			log.Printf("Added %d/%d buildings to test zone...", i+1, len(p.Buildings))
+		}
+	}
+
+	log.Printf("Successfully filled test zone with %d buildings", len(p.Buildings))
+	return nil
 }

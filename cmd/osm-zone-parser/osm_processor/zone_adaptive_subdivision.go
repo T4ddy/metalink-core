@@ -106,28 +106,3 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone
 		iteration, len(*zones))
 	return nil
 }
-
-// Helper functions
-func (p *OSMProcessor) removeOverweightFromAffected(overweightZoneIDs, affectedZoneIDs []string) []string {
-	overweightMap := make(map[string]bool)
-	for _, id := range overweightZoneIDs {
-		overweightMap[id] = true
-	}
-
-	var result []string
-	for _, id := range affectedZoneIDs {
-		if !overweightMap[id] {
-			result = append(result, id)
-		}
-	}
-	return result
-}
-
-func (p *OSMProcessor) findZoneByID(zones []*model.Zone, targetID string) *model.Zone {
-	for _, zone := range zones {
-		if zone.ID == targetID {
-			return zone
-		}
-	}
-	return nil
-}
