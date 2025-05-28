@@ -43,12 +43,13 @@ const (
 	RunModeBaseInit    = 1
 	RunModeOSMLayer    = 2
 	RunModeTypeIndexer = 3
+	RunModeTestZone    = 4
 )
 
 func init() {
 	// Define command line flags
 	flag.StringVar(&dbURL, "db-url", "postgresql://postgres:postgres@localhost:5432/metalink?sslmode=disable", "Database connection URL")
-	flag.IntVar(&runMode, "mode", 0, "Run mode: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer")
+	flag.IntVar(&runMode, "mode", 0, "Run mode: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer, 4 = Save to test zone")
 	flag.StringVar(&osmFilePath, "osm-file", "", "Path to OSM PBF file")
 	flag.Float64Var(&baseZoneSize, "base-zone-size", 100000.0, "Base zone size in meters for USA map (default: 100km)")
 	flag.Float64Var(&minZoneSize, "min-zone-size", 500.0, "Minimum zone size in meters (default: 500m)")
@@ -74,11 +75,11 @@ func main() {
 
 	// Validate run mode
 	if runMode == 0 {
-		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer")
+		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer, 4 = Save to test zone")
 	}
 
 	// Initialize database only if not skipping DB operations and not in type indexer mode
-	if !skipDB && runMode != RunModeTypeIndexer {
+	if !skipDB && runMode != RunModeTypeIndexer && runMode != RunModeTestZone {
 		initDB()
 		defer pg.Close()
 	}
@@ -91,6 +92,8 @@ func main() {
 		runOSMLayerMode()
 	case RunModeTypeIndexer:
 		runTypeIndexerMode()
+	case RunModeTestZone:
+		runTestZoneMode()
 	default:
 		log.Fatalf("Invalid run mode: %d", runMode)
 	}
@@ -180,6 +183,44 @@ func runOSMLayerMode() {
 	}
 
 	log.Printf("Successfully updated %d zones with building statistics", len(zones))
+}
+
+// runTestZoneMode processes OSM data and saves everything to a single test zone
+func runTestZoneMode() {
+	log.Println("Running in Test Zone Save mode")
+
+	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
+	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
+	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
+	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
+	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
+
+	// Validate OSM file path
+	if osmFilePath == "" {
+		log.Fatal("OSM file path must be specified when using Test Zone mode")
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(osmFilePath); os.IsNotExist(err) {
+		log.Fatalf("OSM file not found: %s", osmFilePath)
+	}
+
+	log.Println("Processing OSM file for test zone creation...")
+
+	// Process OSM data
+	processor := osm_processor.NewOSMProcessor()
+	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
+		log.Fatalf("Failed to process OSM file: %v", err)
+	}
+
+	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
+
+	// Create and fill test zone with all buildings
+	if err := processor.SaveAllBuildingsToTestZone(skipDB, exportZonesJSON, exportBuildingsJSON); err != nil {
+		log.Fatalf("Failed to save buildings to test zone: %v", err)
+	}
+
+	log.Println("Successfully saved all buildings to test zone")
 }
 
 // initDB initializes the database connection and runs migrations

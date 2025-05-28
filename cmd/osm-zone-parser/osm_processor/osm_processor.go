@@ -406,3 +406,48 @@ func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, expor
 
 	return nil
 }
+
+// SaveAllBuildingsToTestZone creates a test zone and saves all buildings to it
+func (p *OSMProcessor) SaveAllBuildingsToTestZone(skipDB bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
+	if len(p.Buildings) == 0 {
+		return fmt.Errorf("no buildings processed yet")
+	}
+
+	log.Printf("Creating test zone and saving all %d buildings to it", len(p.Buildings))
+
+	// Create test zone
+	testZone := p.createTestZone()
+
+	// Fill test zone with all buildings
+	if err := p.fillTestZoneWithAllBuildings(testZone); err != nil {
+		return fmt.Errorf("failed to fill test zone with buildings: %w", err)
+	}
+
+	// Save test zone to database if not skipping DB operations
+	if !skipDB {
+		if err := p.saveTestZoneToDB(testZone); err != nil {
+			return fmt.Errorf("failed to save test zone to database: %w", err)
+		}
+		log.Println("Successfully saved test zone to database")
+	} else {
+		log.Println("Skipping database operations for test zone")
+	}
+
+	// Export buildings to GeoJSON if enabled
+	if exportBuildingsJSON {
+		if err := utils.ExportBuildingsToGeoJSON(p.Buildings, "test_zone_buildings.geojson", 0); err != nil {
+			log.Printf("Warning: Failed to export buildings to GeoJSON: %v", err)
+		} else {
+			log.Printf("Successfully exported buildings to test_zone_buildings.geojson")
+		}
+	}
+
+	// Save test zone to JSON
+	if err := p.SaveTestZoneToJSON(testZone, "test_zone_complete.json"); err != nil {
+		log.Printf("Warning: Failed to save test zone to JSON: %v", err)
+	} else {
+		log.Printf("Successfully saved test zone statistics to test_zone_complete.json")
+	}
+
+	return nil
+}
