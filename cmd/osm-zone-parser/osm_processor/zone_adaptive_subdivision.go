@@ -8,12 +8,15 @@ import (
 )
 
 // runAdaptiveZoneSubdivision runs the main iterative algorithm for zone subdivision
-func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone *model.Zone) error {
+func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone *model.Zone) ([]string, error) {
 	log.Printf("Starting adaptive zone subdivision algorithm with %d initial zones", len(*zones))
+
+	// Track all deleted zone IDs throughout the algorithm
+	var deletedZoneIDs []string
 
 	// Fill test zone with ALL buildings ONCE at the beginning
 	if err := p.fillTestZoneWithAllBuildings(testZone); err != nil {
-		return fmt.Errorf("failed to fill test zone: %w", err)
+		return deletedZoneIDs, fmt.Errorf("failed to fill test zone: %w", err)
 	}
 
 	// Step 1: Mark ALL zones for recalculation (ONLY ONCE at the beginning)
@@ -35,12 +38,12 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone
 		// Step 3: Process buildings for recalculation-needed zones
 		zoneIndex, err := p.updateSpatialIndexWithNewZones(*zones)
 		if err != nil {
-			return fmt.Errorf("failed to update spatial index: %w", err)
+			return deletedZoneIDs, fmt.Errorf("failed to update spatial index: %w", err)
 		}
 
 		stats, err := p.processRecalculationNeededZones(*zones, zoneIndex)
 		if err != nil {
-			return fmt.Errorf("failed to process recalculation zones: %w", err)
+			return deletedZoneIDs, fmt.Errorf("failed to process recalculation zones: %w", err)
 		}
 
 		// Step 4: Find overweight zones
@@ -86,7 +89,9 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone
 			allNewZones = append(allNewZones, newZones...)
 		}
 
-		// Step 8: Remove overweight zones from list
+		// Step 8: Remove overweight zones from list AND track them for DB deletion
+		log.Printf("Tracking %d zones for deletion from database", len(overweightZoneIDs))
+		deletedZoneIDs = append(deletedZoneIDs, overweightZoneIDs...)
 		p.removeZonesFromList(zones, overweightZoneIDs)
 
 		// Step 9: Add new split zones to list
@@ -94,15 +99,18 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone
 
 		log.Printf("Iteration %d completed: removed %d zones, added %d zones. Total zones: %d",
 			iteration, len(overweightZoneIDs), len(allNewZones), len(*zones))
+		log.Printf("Total deleted zone IDs so far: %d", len(deletedZoneIDs))
 
 		// Continue to next iteration (goto step 2, NOT step 1!)
 	}
 
 	if iteration >= maxIterations {
-		return fmt.Errorf("algorithm did not converge after %d iterations", maxIterations)
+		return deletedZoneIDs, fmt.Errorf("algorithm did not converge after %d iterations", maxIterations)
 	}
 
 	log.Printf("Adaptive zone subdivision completed successfully after %d iterations with %d final zones",
 		iteration, len(*zones))
-	return nil
+	log.Printf("Total zones to delete from database: %d", len(deletedZoneIDs))
+
+	return deletedZoneIDs, nil
 }

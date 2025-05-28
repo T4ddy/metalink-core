@@ -37,8 +37,8 @@ func (p *OSMProcessor) findOverweightZones(zones []*model.Zone, weightThreshold 
 
 		if zoneWeight > weightThreshold {
 			overweightZoneIDs = append(overweightZoneIDs, zone.ID)
-			log.Printf("Zone %s exceeds threshold: weight %.2f > %.2f",
-				zone.ID, zoneWeight, weightThreshold)
+			// log.Printf("Zone %s exceeds threshold: weight %.2f > %.2f",
+			// 	zone.ID, zoneWeight, weightThreshold)
 		}
 	}
 

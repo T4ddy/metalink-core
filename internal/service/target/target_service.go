@@ -171,8 +171,6 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*model.Target, redisT
 		if !exists || redisTarget.UpdatedAt.After(existingTarget.UpdatedAt) {
 			// If exists, we need to merge fields that are not present in Redis model
 			if exists {
-				// Preserve fields that are not stored in Redis
-				// TODO: FIX THIS MERGE
 				redisTarget.Name = existingTarget.Name
 				redisTarget.Route = existingTarget.Route
 				redisTarget.CreatedAt = existingTarget.CreatedAt

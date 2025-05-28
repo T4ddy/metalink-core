@@ -335,13 +335,14 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	// Create test zone for all buildings
 	testZone := p.createTestZone()
 
-	// Run the adaptive zone subdivision algorithm
-	if err := p.runAdaptiveZoneSubdivision(&zones, testZone); err != nil {
+	// Run the adaptive zone subdivision algorithm and get deleted zone IDs
+	deletedZoneIDs, err := p.runAdaptiveZoneSubdivision(&zones, testZone)
+	if err != nil {
 		return fmt.Errorf("adaptive zone subdivision failed: %w", err)
 	}
 
-	// Save results to database
-	if err := p.saveProcessingResultsToDB(zones, testZone, skipDB); err != nil {
+	// Save results to database (including deletion of old zones)
+	if err := p.saveProcessingResultsToDB(zones, testZone, deletedZoneIDs, skipDB); err != nil {
 		return err
 	}
 
@@ -353,10 +354,18 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	return nil
 }
 
-// saveProcessingResultsToDB saves updated zones and test zone to database
-func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *model.Zone, skipDB bool) error {
+// saveProcessingResultsToDB saves updated zones and test zone to database, and deletes removed zones
+func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *model.Zone, deletedZoneIDs []string, skipDB bool) error {
 	if skipDB {
 		return nil
+	}
+
+	// Delete old zones from database FIRST
+	if len(deletedZoneIDs) > 0 {
+		if err := parser_db.DeleteZonesFromDB(deletedZoneIDs); err != nil {
+			return fmt.Errorf("failed to delete old zones from database: %w", err)
+		}
+		log.Printf("Successfully deleted %d old zones from database", len(deletedZoneIDs))
 	}
 
 	// Save updated zones to database

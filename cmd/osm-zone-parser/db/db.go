@@ -227,3 +227,36 @@ func SaveZonesToDB(zones []parser_model.GameZone) {
 		}
 	}
 }
+
+// DeleteZonesFromDB deletes zones with specified IDs from the database
+func DeleteZonesFromDB(zoneIDs []string) error {
+	if len(zoneIDs) == 0 {
+		return nil
+	}
+
+	db := pg.GetDB()
+
+	log.Printf("Deleting %d zones from database", len(zoneIDs))
+
+	// Delete zones in batches to avoid SQL statement limits
+	batchSize := 100
+	for i := 0; i < len(zoneIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(zoneIDs) {
+			end = len(zoneIDs)
+		}
+
+		batch := zoneIDs[i:end]
+
+		// Use IN clause to delete multiple zones at once
+		result := db.Exec("DELETE FROM zones WHERE id IN (?)", batch)
+		if result.Error != nil {
+			return fmt.Errorf("failed to delete zones batch %d-%d: %w", i, end, result.Error)
+		}
+
+		log.Printf("Deleted batch %d-%d: %d zones affected", i, end, result.RowsAffected)
+	}
+
+	log.Printf("Successfully deleted zones from database")
+	return nil
+}

@@ -2,13 +2,12 @@ package osm_processor
 
 import (
 	"fmt"
-	"log"
 	"metalink/internal/model"
 )
 
 // splitZoneIntoFour splits a zone into 4 equal smaller zones
 func (p *OSMProcessor) splitZoneIntoFour(zone *model.Zone) ([]*model.Zone, error) {
-	log.Printf("Splitting zone %s into 4 smaller zones", zone.ID)
+	// log.Printf("Splitting zone %s into 4 smaller zones", zone.ID)
 
 	// Calculate midpoints
 	midLat := (zone.TopLeftLatLon[0] + zone.BottomLeftLatLon[0]) / 2
