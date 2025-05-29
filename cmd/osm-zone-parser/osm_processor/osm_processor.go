@@ -332,22 +332,19 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 		}
 	}
 
-	// Create test zone for all buildings
-	testZone := p.createTestZone()
-
 	// Run the adaptive zone subdivision algorithm and get deleted zone IDs
-	deletedZoneIDs, err := p.runAdaptiveZoneSubdivision(&zones, testZone)
+	deletedZoneIDs, err := p.runAdaptiveZoneSubdivision(&zones)
 	if err != nil {
 		return fmt.Errorf("adaptive zone subdivision failed: %w", err)
 	}
 
 	// Save results to database (including deletion of old zones)
-	if err := p.saveProcessingResultsToDB(zones, testZone, deletedZoneIDs, skipDB); err != nil {
+	if err := p.saveProcessingResultsToDB(zones, nil, deletedZoneIDs, skipDB); err != nil {
 		return err
 	}
 
 	// Export results to files
-	if err := p.saveProcessingResultsToGeoJSON(zones, exportZonesJSON, exportBuildingsJSON, testZone); err != nil {
+	if err := p.saveProcessingResultsToGeoJSON(zones, exportZonesJSON, exportBuildingsJSON, nil); err != nil {
 		return err
 	}
 
@@ -374,8 +371,10 @@ func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *
 	}
 
 	// Save test zone separately
-	if err := p.saveTestZoneToDB(testZone); err != nil {
-		return fmt.Errorf("failed to save test zone: %w", err)
+	if testZone != nil {
+		if err := p.saveTestZoneToDB(testZone); err != nil {
+			return fmt.Errorf("failed to save test zone: %w", err)
+		}
 	}
 
 	return nil
@@ -400,8 +399,10 @@ func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, expor
 	}
 
 	// Save test zone to JSON
-	if err := p.SaveTestZoneToJSON(testZone, "test_zone.json"); err != nil {
-		log.Printf("Warning: Failed to save test zone to JSON: %v", err)
+	if testZone != nil {
+		if err := p.SaveTestZoneToJSON(testZone, "test_zone.json"); err != nil {
+			log.Printf("Warning: Failed to save test zone to JSON: %v", err)
+		}
 	}
 
 	return nil

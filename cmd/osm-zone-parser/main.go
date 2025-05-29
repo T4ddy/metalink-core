@@ -189,12 +189,6 @@ func runOSMLayerMode() {
 func runTestZoneMode() {
 	log.Println("Running in Test Zone Save mode")
 
-	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
-	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
-	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
-	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
-	// TODO: test TEST MODE and remove all test mdoe code from adaptive zone subdivision
-
 	// Validate OSM file path
 	if osmFilePath == "" {
 		log.Fatal("OSM file path must be specified when using Test Zone mode")

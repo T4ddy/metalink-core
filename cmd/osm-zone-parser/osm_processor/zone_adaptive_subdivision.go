@@ -8,16 +8,11 @@ import (
 )
 
 // runAdaptiveZoneSubdivision runs the main iterative algorithm for zone subdivision
-func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone, testZone *model.Zone) ([]string, error) {
+func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone) ([]string, error) {
 	log.Printf("Starting adaptive zone subdivision algorithm with %d initial zones", len(*zones))
 
 	// Track all deleted zone IDs throughout the algorithm
 	var deletedZoneIDs []string
-
-	// Fill test zone with ALL buildings ONCE at the beginning
-	if err := p.fillTestZoneWithAllBuildings(testZone); err != nil {
-		return deletedZoneIDs, fmt.Errorf("failed to fill test zone: %w", err)
-	}
 
 	// Step 1: Mark ALL zones for recalculation (ONLY ONCE at the beginning)
 	log.Printf("Marking all %d zones for recalculation", len(*zones))
