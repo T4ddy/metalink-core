@@ -232,7 +232,7 @@ func (p *OSMProcessor) processBuilding(way *osmpbf.Way) *model.Building {
 
 // GetZonesForProcessedBuildings calculates the bounding box containing all processed buildings
 // and returns zones from the database that intersect with this bounding box plus a buffer.
-func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64, skipDB bool) ([]*model.Zone, error) {
+func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64) ([]*model.Zone, error) {
 	if len(p.Buildings) == 0 {
 		return nil, fmt.Errorf("no buildings processed yet")
 	}
@@ -244,39 +244,23 @@ func (p *OSMProcessor) GetZonesForProcessedBuildings(bufferMeters float64, skipD
 		boundingBox.minLat, boundingBox.minLng, boundingBox.maxLat, boundingBox.maxLng)
 
 	// Query zones that intersect with the buildings' bounding box
-	if !skipDB {
-		zones, err := parser_db.QueryZonesFromDB(
-			boundingBox.minLat,
-			boundingBox.minLng,
-			boundingBox.maxLat,
-			boundingBox.maxLng,
-			bufferMeters,
-		)
-		if err != nil {
-			log.Fatalf("Failed to query zones from database: %v", err)
-		}
-
-		err = utils.ExportZonesToGeoJSON(zones, "output_zones.geojson", false, false)
-		if err != nil {
-			log.Fatalf("Failed to export zones: %v", err)
-		}
-
-		return zones, nil
-	} else {
-
-		zones := make([]*model.Zone, 0)
-
-		// Create 1 test zone with boundingBox as borders
-		zones = append(zones, &model.Zone{
-			ID:                "ONEZONE",
-			Name:              "ONEZONE",
-			TopLeftLatLon:     []float64{boundingBox.minLat, boundingBox.minLng},
-			TopRightLatLon:    []float64{boundingBox.minLat, boundingBox.maxLng},
-			BottomLeftLatLon:  []float64{boundingBox.maxLat, boundingBox.minLng},
-			BottomRightLatLon: []float64{boundingBox.maxLat, boundingBox.maxLng},
-		})
-		return zones, nil
+	zones, err := parser_db.QueryZonesFromDB(
+		boundingBox.minLat,
+		boundingBox.minLng,
+		boundingBox.maxLat,
+		boundingBox.maxLng,
+		bufferMeters,
+	)
+	if err != nil {
+		log.Fatalf("Failed to query zones from database: %v", err)
 	}
+
+	err = utils.ExportZonesToGeoJSON(zones, "output_zones.geojson", false, false)
+	if err != nil {
+		log.Fatalf("Failed to export zones: %v", err)
+	}
+
+	return zones, nil
 }
 
 // calculateBuildingsBoundingBox calculates the bounding box containing all processed buildings
@@ -318,7 +302,7 @@ func (p *OSMProcessor) calculateBuildingsBoundingBox() BoundingBox {
 }
 
 // UpdateZonesWithBuildingStats updates zones with building statistics using adaptive subdivision
-func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB bool, clearZones bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
+func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, clearZones bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
@@ -326,7 +310,7 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	log.Printf("Updating %d zones with building statistics from %d buildings using adaptive subdivision", len(zones), len(p.Buildings))
 
 	// Clear zones from database if requested
-	if clearZones && !skipDB {
+	if clearZones {
 		if err := parser_db.ClearAllZonesFromDB(); err != nil {
 			return fmt.Errorf("failed to clear zones from database: %w", err)
 		}
@@ -339,7 +323,7 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 	}
 
 	// Save results to database (including deletion of old zones)
-	if err := p.saveProcessingResultsToDB(zones, nil, deletedZoneIDs, skipDB); err != nil {
+	if err := p.saveProcessingResultsToDB(zones, nil, deletedZoneIDs); err != nil {
 		return err
 	}
 
@@ -352,11 +336,7 @@ func (p *OSMProcessor) UpdateZonesWithBuildingStats(zones []*model.Zone, skipDB 
 }
 
 // saveProcessingResultsToDB saves updated zones and test zone to database, and deletes removed zones
-func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *model.Zone, deletedZoneIDs []string, skipDB bool) error {
-	if skipDB {
-		return nil
-	}
-
+func (p *OSMProcessor) saveProcessingResultsToDB(zones []*model.Zone, testZone *model.Zone, deletedZoneIDs []string) error {
 	// Delete old zones from database FIRST
 	if len(deletedZoneIDs) > 0 {
 		if err := parser_db.DeleteZonesFromDB(deletedZoneIDs); err != nil {
@@ -409,7 +389,7 @@ func (p *OSMProcessor) saveProcessingResultsToGeoJSON(zones []*model.Zone, expor
 }
 
 // SaveAllBuildingsToTestZone creates a test zone and saves all buildings to it
-func (p *OSMProcessor) SaveAllBuildingsToTestZone(skipDB bool, exportZonesJSON bool, exportBuildingsJSON bool) error {
+func (p *OSMProcessor) SaveAllBuildingsToTestZone(exportZonesJSON bool, exportBuildingsJSON bool) error {
 	if len(p.Buildings) == 0 {
 		return fmt.Errorf("no buildings processed yet")
 	}
@@ -424,15 +404,11 @@ func (p *OSMProcessor) SaveAllBuildingsToTestZone(skipDB bool, exportZonesJSON b
 		return fmt.Errorf("failed to fill test zone with buildings: %w", err)
 	}
 
-	// Save test zone to database if not skipping DB operations
-	if !skipDB {
-		if err := p.saveTestZoneToDB(testZone); err != nil {
-			return fmt.Errorf("failed to save test zone to database: %w", err)
-		}
-		log.Println("Successfully saved test zone to database")
-	} else {
-		log.Println("Skipping database operations for test zone")
+	// Save test zone to database
+	if err := p.saveTestZoneToDB(testZone); err != nil {
+		return fmt.Errorf("failed to save test zone to database: %w", err)
 	}
+	log.Println("Successfully saved test zone to database")
 
 	// Export buildings to GeoJSON if enabled
 	if exportBuildingsJSON {

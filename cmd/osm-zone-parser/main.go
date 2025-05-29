@@ -78,8 +78,8 @@ func main() {
 		log.Fatal("Run mode must be specified: 1 = Base USA map initialization, 2 = Add OSM data layer, 3 = Building type indexer, 4 = Save to test zone")
 	}
 
-	// Initialize database only if not skipping DB operations and not in type indexer mode
-	if !skipDB && runMode != RunModeTypeIndexer && runMode != RunModeTestZone {
+	// Initialize database only if not in type indexer mode
+	if runMode != RunModeTypeIndexer && runMode != RunModeTestZone {
 		initDB()
 		defer pg.Close()
 	}
@@ -106,13 +106,9 @@ func runBaseInitMode() {
 	// Generate zones
 	zonesUSA := buildBaseUSAGrid()
 
-	// Save zones to database only if not skipping DB operations
-	if !skipDB {
-		parser_db.SaveZonesToDB(zonesUSA)
-		log.Printf("Successfully saved %d zones to database", len(zonesUSA))
-	} else {
-		log.Printf("Skipping database operations. Generated %d zones", len(zonesUSA))
-	}
+	// Save zones to database
+	parser_db.SaveZonesToDB(zonesUSA)
+	log.Printf("Successfully saved %d zones to database", len(zonesUSA))
 
 	// Export zones to GeoJSON if enabled
 	if exportBaseMapJSON {
@@ -134,31 +130,21 @@ func runOSMLayerMode() {
 		log.Fatalf("OSM file not found: %s", osmFilePath)
 	}
 
-	if skipDB {
-		log.Println("Database operations are disabled. Will only process OSM file without updating zones.")
-	}
-
 	if clearZones {
 		log.Println("Clear zones mode enabled. All zones will be deleted and base grid will be regenerated.")
 
-		// Clear all zones from database if not skipping DB operations
-		if !skipDB {
-			if err := parser_db.ClearAllZonesFromDB(); err != nil {
-				log.Fatalf("Failed to clear zones from database: %v", err)
-			}
+		// Clear all zones from database
+		if err := parser_db.ClearAllZonesFromDB(); err != nil {
+			log.Fatalf("Failed to clear zones from database: %v", err)
 		}
 
 		// Run base initialization to create fresh zone grid
 		log.Println("Regenerating base USA grid...")
 		zonesUSA := buildBaseUSAGrid()
 
-		// Save zones to database only if not skipping DB operations
-		if !skipDB {
-			parser_db.SaveZonesToDB(zonesUSA)
-			log.Printf("Successfully saved %d fresh zones to database", len(zonesUSA))
-		} else {
-			log.Printf("Skipping database operations. Generated %d fresh zones", len(zonesUSA))
-		}
+		// Save zones to database
+		parser_db.SaveZonesToDB(zonesUSA)
+		log.Printf("Successfully saved %d fresh zones to database", len(zonesUSA))
 	}
 
 	// Process OSM data
@@ -170,14 +156,14 @@ func runOSMLayerMode() {
 	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
 
 	// Find existing zones in the extended bounding box with 5km buffer
-	zones, err := processor.GetZonesForProcessedBuildings(5000.0, skipDB)
+	zones, err := processor.GetZonesForProcessedBuildings(5000.0)
 	if err != nil {
 		log.Fatalf("Failed to find existing zones: %v", err)
 	}
 
 	log.Printf("Found %d existing zones intersecting with the objects bounding box (with buffer).", len(zones))
 
-	err = processor.UpdateZonesWithBuildingStats(zones, skipDB, clearZones, exportZonesJSON, exportBuildingsJSON) // clearZones уже выполнен выше
+	err = processor.UpdateZonesWithBuildingStats(zones, clearZones, exportZonesJSON, exportBuildingsJSON)
 	if err != nil {
 		log.Fatalf("Failed to update zones with building stats: %v", err)
 	}
@@ -210,7 +196,7 @@ func runTestZoneMode() {
 	log.Printf("OSM data processing complete. Found %d buildings.", len(processor.Buildings))
 
 	// Create and fill test zone with all buildings
-	if err := processor.SaveAllBuildingsToTestZone(skipDB, exportZonesJSON, exportBuildingsJSON); err != nil {
+	if err := processor.SaveAllBuildingsToTestZone(exportZonesJSON, exportBuildingsJSON); err != nil {
 		log.Fatalf("Failed to save buildings to test zone: %v", err)
 	}
 
