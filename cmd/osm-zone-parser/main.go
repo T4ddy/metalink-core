@@ -147,8 +147,8 @@ func runOSMLayerMode() {
 		log.Printf("Successfully saved %d fresh zones to database", len(zonesUSA))
 	}
 
-	// Process OSM data
-	processor := osm_processor.NewOSMProcessor()
+	// Process OSM data with minimum zone size parameter
+	processor := osm_processor.NewOSMProcessor(minZoneSize)
 	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
 		log.Fatalf("Failed to process OSM file: %v", err)
 	}
@@ -187,8 +187,8 @@ func runTestZoneMode() {
 
 	log.Println("Processing OSM file for test zone creation...")
 
-	// Process OSM data
-	processor := osm_processor.NewOSMProcessor()
+	// Process OSM data with minimum zone size parameter
+	processor := osm_processor.NewOSMProcessor(minZoneSize)
 	if err := processor.ProcessOSMFile(osmFilePath); err != nil {
 		log.Fatalf("Failed to process OSM file: %v", err)
 	}

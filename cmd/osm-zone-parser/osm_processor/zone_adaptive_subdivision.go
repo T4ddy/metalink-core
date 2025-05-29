@@ -43,7 +43,7 @@ func (p *OSMProcessor) runAdaptiveZoneSubdivision(zones *[]*model.Zone) ([]strin
 
 		// Step 4: Find overweight zones
 		weightThreshold := mappers.GetWeightThreshold()
-		overweightZoneIDs := p.findOverweightZones(*zones, weightThreshold)
+		overweightZoneIDs := p.findOverweightZonesWithMinSize(*zones, weightThreshold)
 
 		if len(overweightZoneIDs) == 0 {
 			log.Printf("No overweight zones found.")

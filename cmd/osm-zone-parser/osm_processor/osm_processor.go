@@ -24,14 +24,16 @@ type OSMProcessor struct {
 	SpatialIndex   *rtreego.Rtree
 	ProcessedNodes map[int64]orb.Point
 	mutex          sync.Mutex
+	MinZoneSize    float64 // Minimum zone size in meters
 }
 
 // NewOSMProcessor creates a new OSM processor
-func NewOSMProcessor() *OSMProcessor {
+func NewOSMProcessor(minZoneSize float64) *OSMProcessor {
 	return &OSMProcessor{
 		Buildings:      make([]*model.Building, 0),
 		SpatialIndex:   rtreego.NewTree(2, 25, 50), // 2D index with min 25, max 50 entries per node
 		ProcessedNodes: make(map[int64]orb.Point),
+		MinZoneSize:    minZoneSize,
 	}
 }
 
