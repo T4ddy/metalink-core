@@ -60,3 +60,22 @@ osmium tags-filter texas-latest.osm.pbf w/building=house,apartments -o houses.os
 * поиск электроники
 * расход стамины
 * вероятность атаки людьми
+
+================================================
+
+psql
+
+$env:PGPASSWORD="postgres"; psql -U postgres -d metalink -c "DROP TABLE IF EXISTS zones;"
+
+$env:PGPASSWORD="postgres"; pg_dump -U postgres --encoding=UTF8 -t zones metalink > zones_backup.sql
+
+
+
+cygwin64
+
+ cd /cygdrive/c/metalink/metalink-core 
+
+ PGPASSWORD=postgres /cygdrive/c/Program\ Files/PostgreSQL/17/bin/pg_dump.exe -U postgres --encoding=UTF8 -t zones metalink > /cygdrive/c/metalink/metalink-core/zones_backup.sql 
+ 
+ psql -U postgres metalink < /Users/oleksiibielokonenko/Documents/metalink-src/zones_backup.sql 
+
