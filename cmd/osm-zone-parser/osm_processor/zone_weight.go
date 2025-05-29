@@ -61,9 +61,6 @@ func (p *OSMProcessor) findOverweightZonesWithMinSize(zones []*model.Zone, weigh
 			// Check if both half dimensions are still larger than minimum zone size
 			if halfWidth >= p.MinZoneSize {
 				overweightZoneIDs = append(overweightZoneIDs, zone.ID)
-			} else {
-				log.Printf("Zone %s exceeds threshold but cannot be split: weight %.2f > %.2f, size %.2f m (half: %.2f m would be below min %.2f m)",
-					zone.ID, zoneWeight, weightThreshold, width, halfWidth, p.MinZoneSize)
 			}
 		}
 	}
