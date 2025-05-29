@@ -73,9 +73,16 @@ $env:PGPASSWORD="postgres"; pg_dump -U postgres --encoding=UTF8 -t zones metalin
 
 cygwin64
 
+ PGPASSWORD=postgres /cygdrive/c/Program\ Files/PostgreSQL/17/bin/psql.exe -U postgres -d metalink -c "DROP TABLE IF EXISTS zones;"    
+
  cd /cygdrive/c/metalink/metalink-core 
 
  PGPASSWORD=postgres /cygdrive/c/Program\ Files/PostgreSQL/17/bin/pg_dump.exe -U postgres --encoding=UTF8 -t zones metalink > /cygdrive/c/metalink/metalink-core/zones_backup.sql 
  
  psql -U postgres metalink < /Users/oleksiibielokonenko/Documents/metalink-src/zones_backup.sql 
 
+   go run ./cmd/osm-zone-parser -mode=1  
+
+   go run ./cmd/osm-zone-parser -mode=2 -osm-file=""
+
+   go run ./cmd/osm-zone-parser -mode=2 -min-zone-size=300 -osm-file="./cmd/osm-zone-parser/data/south-dakota-latest.osm.pbf"        

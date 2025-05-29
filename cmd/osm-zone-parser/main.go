@@ -56,7 +56,7 @@ func init() {
 	flag.BoolVar(&exportBaseMapJSON, "export-usa-grid-json", true, "Export base USA map to GeoJSON file")
 	flag.BoolVar(&skipDB, "skip-db", false, "Skip all database operations")
 	flag.BoolVar(&clearZones, "clear-zones", false, "Clear all zones from database before saving updated ones (test mode)")
-	flag.BoolVar(&exportZonesJSON, "export-zones-json", false, "Export processed zones with building stats to GeoJSON file")
+	flag.BoolVar(&exportZonesJSON, "export-zones-json", true, "Export processed zones with building stats to GeoJSON file")
 	flag.BoolVar(&exportBuildingsJSON, "export-buildings-json", false, "Export buildings as squares to GeoJSON file")
 
 	// Type indexer specific flags
