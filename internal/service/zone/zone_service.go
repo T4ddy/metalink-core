@@ -212,13 +212,9 @@ func (s *ZoneService) GetZonesAtPoint(lat, lng float64) []*model.Zone {
 		return nil
 	}
 
-	s.indexMutex.RLock()
-	defer s.indexMutex.RUnlock()
-
 	point := orb.Point{lng, lat}
 
 	// Create a small search rectangle around the point
-	// This helps with the initial filtering using the R-tree
 	searchRect, err := rtreego.NewRect(
 		rtreego.Point{lng, lat},
 		[]float64{0.0001, 0.0001}, // Small radius for point search
@@ -229,7 +225,6 @@ func (s *ZoneService) GetZonesAtPoint(lat, lng float64) []*model.Zone {
 	}
 
 	// Find candidate zones using the spatial index
-	// This returns zones whose bounding boxes contain the point
 	spatialResults := s.spatialIndex.SearchIntersect(searchRect)
 
 	if len(spatialResults) == 0 {
@@ -255,9 +250,6 @@ func (s *ZoneService) GetZonesInBounds(minLat, minLng, maxLat, maxLng float64) [
 	if !s.initialized {
 		return nil
 	}
-
-	s.indexMutex.RLock()
-	defer s.indexMutex.RUnlock()
 
 	// Create search rectangle from the bounds
 	searchRect, _ := rtreego.NewRect(

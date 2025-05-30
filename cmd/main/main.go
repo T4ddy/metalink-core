@@ -149,15 +149,7 @@ func playground() {
 	log.Println(">>> PLAYGROUND <<<")
 	log.Println(">>> PLAYGROUND <<<")
 
-	// Initialize target service
 	targetService := target.GetTargetService()
-	ctx := context.Background()
-
-	// Load data from PostgreSQL and Redis
-	if err := targetService.InitService(ctx); err != nil {
-		log.Fatalf("Failed to initialize target service: %v", err)
-	}
-
 	targetService.DeleteAllRedisTargets()
 	targetService.SeedTestTargetsPGParallel(1000000)
 }

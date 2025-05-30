@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -186,38 +187,70 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*model.Target, redisT
 	return mergedCount
 }
 
-// ProcessTargets updates target positions and calculates zone effects
+// ProcessTargets updates target positions and calculates zone effects with parallelization
 func (s *TargetService) ProcessTargets() {
-	// Step 1: Process movements
-	movementStart := time.Now()
-	processedMovements := 0
-	s.storage.ForEach(func(id string, target *model.Target) bool {
-		if target.State == model.TargetStateWalking {
-			s.updateTargetPosition(target)
-			processedMovements++
-		}
-		return true
-	})
-	movementDuration := time.Since(movementStart)
+	processingStart := time.Now()
 
-	// Step 2: Process effects
-	effectsStart := time.Now()
+	// Get all targets once using GetAllValues
+	allTargets := s.storage.GetAllValues()
+	if len(allTargets) == 0 {
+		log.Printf("No targets to process")
+		return
+	}
+
+	// Use all available CPU cores for parallel processing
+	numWorkers := runtime.NumCPU()
+	if numWorkers > len(allTargets) {
+		numWorkers = len(allTargets)
+	}
+
+	var wg sync.WaitGroup
+	targetsPerWorker := len(allTargets) / numWorkers
+
+	// Atomic counters for statistics
+	var totalEffectsValue int64 // Multiply by 1000 for precision
+
 	zoneService := zone.GetZoneService()
-	processedEffects := 0
-	totalEffectsValue := 0.0
-	s.storage.ForEach(func(id string, target *model.Target) bool {
-		effects := zoneService.GetEffectsForTarget(float64(target.CurrentLat), float64(target.CurrentLng))
-		for _, effect := range effects {
-			totalEffectsValue += float64(effect)
-		}
-		processedEffects++
-		return true
-	})
-	effectsDuration := time.Since(effectsStart)
 
-	log.Printf("MOVEMENTS processed in >> %v", movementDuration)
-	log.Printf("EFFECTS processed in >> %v", effectsDuration)
-	log.Printf("Total effects value: %f", totalEffectsValue)
+	for i := 0; i < numWorkers; i++ {
+		start := i * targetsPerWorker
+		end := start + targetsPerWorker
+		if i == numWorkers-1 {
+			end = len(allTargets) // Last worker takes remainder
+		}
+
+		wg.Add(1)
+		go func(targets []*model.Target) {
+			defer wg.Done()
+
+			// Local counters for this worker
+			workerEffectsValue := float64(0)
+
+			// Process both movements and effects in single loop
+			for _, target := range targets {
+				// Step 1: Process movement if needed
+				if target.State == model.TargetStateWalking {
+					s.updateTargetPosition(target)
+				}
+
+				// Step 2: Process effects for all targets
+				effects := zoneService.GetEffectsForTarget(float64(target.CurrentLat), float64(target.CurrentLng))
+				for _, effect := range effects {
+					workerEffectsValue += float64(effect)
+				}
+			}
+
+			// Update atomic counters
+			atomic.AddInt64(&totalEffectsValue, int64(workerEffectsValue*1000))
+		}(allTargets[start:end])
+	}
+
+	wg.Wait()
+
+	processingDuration := time.Since(processingStart)
+	finalEffectsValue := float64(totalEffectsValue) / 1000.0
+
+	log.Printf("PROCESSING TIME: %v | Total effects: %.2f", processingDuration, finalEffectsValue)
 }
 
 // updateTargetPosition updates a target's position based on its speed and route

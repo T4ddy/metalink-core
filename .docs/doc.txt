@@ -65,11 +65,16 @@ osmium extract -p west.part1.geojson -o west.part1.osm.pbf us-west-B.osm.pbf --o
 
 ================================================
 
+WSL
+  
+  sudo service redis-server start
+
+
 psql
 
-$env:PGPASSWORD="postgres"; psql -U postgres -d metalink -c "DROP TABLE IF EXISTS zones;"
+  $env:PGPASSWORD="postgres"; psql -U postgres -d metalink -c "DROP TABLE IF EXISTS zones;"
 
-$env:PGPASSWORD="postgres"; pg_dump -U postgres --encoding=UTF8 -t zones metalink > zones_backup.sql
+  $env:PGPASSWORD="postgres"; pg_dump -U postgres --encoding=UTF8 -t zones metalink > zones_backup.sql
 
 
 
