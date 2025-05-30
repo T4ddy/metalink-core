@@ -206,10 +206,10 @@ func (s *TargetService) ProcessTargets() {
 	processedEffects := 0
 	totalEffectsValue := 0.0
 	s.storage.ForEach(func(id string, target *model.Target) bool {
-		zoneService.GetEffectsForTarget(float64(target.CurrentLat), float64(target.CurrentLng))
-		// for _, effect := range effects {
-		// 	totalEffectsValue += float64(effect)
-		// }
+		effects := zoneService.GetEffectsForTarget(float64(target.CurrentLat), float64(target.CurrentLng))
+		for _, effect := range effects {
+			totalEffectsValue += float64(effect)
+		}
 		processedEffects++
 		return true
 	})
@@ -557,7 +557,7 @@ func (s *TargetService) SeedTestTargetsPGParallel(count int) error {
 
 				var targets []model.TargetPG
 				for j := 0; j < currentBatchSize; j++ {
-					id, err := util.GenerateUUIDWithLength(6)
+					id, err := util.GenerateUUIDWithLength(12)
 					if err != nil {
 						errChan <- err
 						return

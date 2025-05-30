@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"io"
 	"log"
 	"metalink/internal/api"
@@ -22,6 +23,10 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	playgroundFlag := flag.Bool("playground", false, "Run in playground mode")
+	flag.Parse()
+
 	setupLogging()
 
 	cfg, err := loadConfiguration()
@@ -34,17 +39,14 @@ func main() {
 
 	setupSignalHandler()
 
-	targetService := initializeServices()
-
-	playgroundFlag := false
-	// playgroundFlag = true
-
-	// if false {
-	if playgroundFlag {
-		playground(targetService)
-	} else {
-		startWorkers(targetService)
+	// Use the flag value instead of hardcoded variable
+	if *playgroundFlag {
+		playground()
+		return
 	}
+
+	targetService := initializeServices()
+	startWorkers(targetService)
 
 	reportMemoryStats()
 
@@ -142,16 +144,22 @@ func runAPIServer(cfg config.Config) {
 	r.Run(cfg.Port)
 }
 
-func playground(targetService *target.TargetService) {
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
-	log.Println("PLAYGROUND")
+func playground() {
+	log.Println(">>> PLAYGROUND <<<")
+	log.Println(">>> PLAYGROUND <<<")
+	log.Println(">>> PLAYGROUND <<<")
+
+	// Initialize target service
+	targetService := target.GetTargetService()
+	ctx := context.Background()
+
+	// Load data from PostgreSQL and Redis
+	if err := targetService.InitService(ctx); err != nil {
+		log.Fatalf("Failed to initialize target service: %v", err)
+	}
+
 	targetService.DeleteAllRedisTargets()
-	targetService.SeedTestTargetsPGParallel(300000)
+	targetService.SeedTestTargetsPGParallel(1000000)
 }
 
 func reportMemoryStats() {

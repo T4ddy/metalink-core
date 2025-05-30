@@ -102,13 +102,8 @@ func (s *ZoneService) InitService(ctx context.Context) error {
 	// Step 3: Load zones into memory storage
 	log.Println("Step 3: Loading zones into memory storage...")
 	memoryLoadStart := time.Now()
-	for i, zone := range zones {
+	for _, zone := range zones {
 		s.storage.Set(zone.ID, zone)
-
-		if (i+1)%100000 == 0 || i == len(zones)-1 {
-			log.Printf("Memory loading progress: %d/%d zones (%.1f%%)",
-				i+1, len(zones), float64(i+1)/float64(len(zones))*100)
-		}
 	}
 	memoryLoadDuration := time.Since(memoryLoadStart)
 	log.Printf("Memory loading completed: %d zones stored in %v", len(zones), memoryLoadDuration)
