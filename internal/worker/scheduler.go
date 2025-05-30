@@ -8,7 +8,7 @@ import (
 func StartAllWorkers() {
 	log.Println("Starting all workers...")
 
-	StartMovementWorker()
+	StartTargetsWorker()
 
 	log.Println("All workers started")
 }

@@ -45,6 +45,8 @@ osmium tags-filter texas-latest.osm.pbf w/building=house,apartments -o houses.os
 получение карты категорий и на её базе карты эффектов
 
 
+osmium extract -p west.part1.geojson -o west.part1.osm.pbf us-west-B.osm.pbf --overwrite
+
 ================================================
 
 

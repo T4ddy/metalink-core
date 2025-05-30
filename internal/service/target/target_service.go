@@ -15,6 +15,7 @@ import (
 	pg "metalink/internal/postgres"
 	redis_client "metalink/internal/redis"
 	"metalink/internal/service/storage"
+	"metalink/internal/service/zone"
 	"metalink/internal/util"
 
 	"gorm.io/gorm"
@@ -185,23 +186,38 @@ func (s *TargetService) mergeTargetsIntoMemory(pgTargets []*model.Target, redisT
 	return mergedCount
 }
 
-// ProcessTargetMovements updates target positions based on their routes and speeds
-func (s *TargetService) ProcessTargetMovements() {
-	startTime := time.Now()
-
-	// For each target, calculate new position
-	processedCount := 0
+// ProcessTargets updates target positions and calculates zone effects
+func (s *TargetService) ProcessTargets() {
+	// Step 1: Process movements
+	movementStart := time.Now()
+	processedMovements := 0
 	s.storage.ForEach(func(id string, target *model.Target) bool {
 		if target.State == model.TargetStateWalking {
-			// Calculate new position based on route and speed
 			s.updateTargetPosition(target)
-			processedCount++
+			processedMovements++
 		}
 		return true
 	})
+	movementDuration := time.Since(movementStart)
 
-	log.Printf("Processed movements for %d targets in %v",
-		processedCount, time.Since(startTime))
+	// Step 2: Process effects
+	effectsStart := time.Now()
+	zoneService := zone.GetZoneService()
+	processedEffects := 0
+	totalEffectsValue := 0.0
+	s.storage.ForEach(func(id string, target *model.Target) bool {
+		zoneService.GetEffectsForTarget(float64(target.CurrentLat), float64(target.CurrentLng))
+		// for _, effect := range effects {
+		// 	totalEffectsValue += float64(effect)
+		// }
+		processedEffects++
+		return true
+	})
+	effectsDuration := time.Since(effectsStart)
+
+	log.Printf("MOVEMENTS processed in >> %v", movementDuration)
+	log.Printf("EFFECTS processed in >> %v", effectsDuration)
+	log.Printf("Total effects value: %f", totalEffectsValue)
 }
 
 // updateTargetPosition updates a target's position based on its speed and route
@@ -211,7 +227,7 @@ func (s *TargetService) updateTargetPosition(target *model.Target) {
 		target.RoutePoints = util.DecodePolyline(target.Route)
 	}
 
-	remainingDistance := float64(target.Speed * float32(config.MovementWorkerInterval.Seconds()))
+	remainingDistance := float64(target.Speed * float32(config.TargetsWorkerInterval.Seconds()))
 
 	// Initialize target position if not set
 	if target.NextPointIndex <= 0 {

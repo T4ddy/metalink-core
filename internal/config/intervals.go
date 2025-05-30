@@ -4,8 +4,8 @@ import "time"
 
 // Worker intervals
 const (
-	// MovementWorkerInterval defines how often the movement worker processes target movements
-	MovementWorkerInterval = 2 * time.Second
+	// TargetsWorkerInterval defines how often the targets worker processes target movements and effects
+	TargetsWorkerInterval = 5 * time.Second
 
 	// RedisBackupInterval defines how often to save changes to Redis
 	RedisBackupInterval = 5 * time.Second

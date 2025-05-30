@@ -9,6 +9,7 @@ import (
 	"metalink/internal/postgres"
 	"metalink/internal/redis"
 	"metalink/internal/service/target"
+	"metalink/internal/service/zone"
 	"metalink/internal/worker"
 	"os"
 	"os/signal"
@@ -106,6 +107,12 @@ func initializeServices() *target.TargetService {
 	// Load data from PostgreSQL and Redis
 	if err := targetService.InitService(ctx); err != nil {
 		log.Fatalf("Failed to initialize target service: %v", err)
+	}
+
+	// Initialize zone service
+	zoneService := zone.GetZoneService()
+	if err := zoneService.InitService(ctx); err != nil {
+		log.Fatalf("Failed to initialize zone service: %v", err)
 	}
 
 	return targetService

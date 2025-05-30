@@ -4,9 +4,9 @@
   "weight_threshold": 50000.0,
   "building_effects_config": {
     "residential": {
-      "extra_radius_kf": 1,
-      "weight": 1,
-      "efects": {
+      "extra_radius_kf": 2,
+      "weight": 3,
+      "effects": {
         "sleep_quality": 20,
         "food_search": 10,
         "water_search": 8
@@ -15,7 +15,7 @@
     "commercial_retail": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 25,
         "medicine_search": 15,
         "water_search": 12
@@ -24,7 +24,7 @@
     "industrial_manufacturing": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 30,
         "stamina_consumption": 25,
         "medicine_search": 5
@@ -33,7 +33,7 @@
     "agricultural_farming": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 35,
         "water_search": 20,
         "air_quality": -10
@@ -42,7 +42,7 @@
     "religious_worship": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "sleep_quality": 25,
         "food_search": 8,
         "medicine_search": 5
@@ -51,7 +51,7 @@
     "educational": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 12,
         "food_search": 8,
         "sleep_quality": 10
@@ -60,7 +60,7 @@
     "healthcare_medical": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 40,
         "water_search": 15,
         "air_quality": 5
@@ -69,7 +69,7 @@
     "government_civic": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 15,
         "water_search": 15,
         "medicine_search": 15,
@@ -79,7 +79,7 @@
     "police": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 20,
         "food_search": 10,
         "stamina_consumption": 15
@@ -88,7 +88,7 @@
     "military_security": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 25,
         "food_search": 20,
         "air_quality": 20,
@@ -98,7 +98,7 @@
     "transportation_automotive": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 25,
         "stamina_consumption": 15,
         "food_search": 5
@@ -107,7 +107,7 @@
     "transportation_aviation": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 35,
         "stamina_consumption": 25,
         "food_search": 8
@@ -116,7 +116,7 @@
     "transportation_rail": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 20,
         "stamina_consumption": 12,
         "food_search": 6
@@ -125,7 +125,7 @@
     "transportation_water": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "water_search": 15,
         "food_search": 8,
         "air_quality": 10
@@ -134,7 +134,7 @@
     "hospitality_accommodation": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "sleep_quality": 30,
         "food_search": 12,
         "water_search": 10
@@ -143,7 +143,7 @@
     "entertainment_venues": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 15,
         "sleep_quality": 8,
         "stamina_consumption": 5
@@ -152,7 +152,7 @@
     "sports_facilities": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "stamina_consumption": 20,
         "medicine_search": 8,
         "water_search": 12
@@ -161,7 +161,7 @@
     "recreational_outdoor": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": -15,
         "stamina_consumption": -10,
         "sleep_quality": 15
@@ -170,7 +170,7 @@
     "power_generation": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 40,
         "stamina_consumption": 30,
         "medicine_search": 5
@@ -179,7 +179,7 @@
     "water_infrastructure": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "water_search": 35,
         "air_quality": 5
       }
@@ -187,7 +187,7 @@
     "computers": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 3,
         "air_quality": 5
       }
@@ -195,7 +195,7 @@
     "utilities_infrastructure": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 25,
         "stamina_consumption": 15
       }
@@ -203,7 +203,7 @@
     "storage_warehousing": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 20,
         "water_search": 15,
         "medicine_search": 10
@@ -212,7 +212,7 @@
     "cultural_historic": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "sleep_quality": 15,
         "food_search": 5,
         "medicine_search": 3
@@ -221,7 +221,7 @@
     "food_services": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "food_search": 30,
         "water_search": 10,
         "medicine_search": 5
@@ -230,7 +230,7 @@
     "construction_temporary": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 30,
         "stamina_consumption": 25,
         "sleep_quality": -10
@@ -239,7 +239,7 @@
     "specialized_buildings": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "medicine_search": 8,
         "sleep_quality": 5
       }
@@ -247,7 +247,7 @@
     "mobile_temporary": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "sleep_quality": -5,
         "food_search": 8,
         "air_quality": 10
@@ -256,7 +256,7 @@
     "sanitation_facilities": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "water_search": 20,
         "air_quality": 20,
         "medicine_search": 5
@@ -265,7 +265,7 @@
     "maintenance_service": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 15,
         "stamina_consumption": 10,
         "food_search": 5
@@ -274,7 +274,7 @@
     "abandoned_disused": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 25,
         "sleep_quality": -15,
         "stamina_consumption": 15
@@ -283,14 +283,14 @@
     "roof_structures": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "sleep_quality": -5
       }
     },
     "transportation_general": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {
+      "effects": {
         "air_quality": 20,
         "stamina_consumption": 15
       }
@@ -298,12 +298,12 @@
     "empty_no_loot": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {}
+      "effects": {}
     },
     "other": {
       "extra_radius_kf": 1,
       "weight": 1,
-      "efects": {}
+      "effects": {}
     }
   }
 }

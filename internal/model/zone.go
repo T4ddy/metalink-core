@@ -4,17 +4,11 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"metalink/cmd/osm-zone-parser/mappers"
 	"time"
 
 	"github.com/paulmach/orb"
 	"gorm.io/gorm"
-)
-
-type EffectType int
-
-const (
-	EffectTypeBuff EffectType = iota
-	EffectTypeDebuff
 )
 
 // TargetParamType represents the type of parameter affected by the effect
@@ -24,6 +18,12 @@ const (
 	TargetParamTypeHealth TargetParamType = iota
 	TargetParamTypeStamina
 	TargetParamTypeStrength
+	TargetParamTypeSleepQuality
+	TargetParamTypeFoodSearch
+	TargetParamTypeWaterSearch
+	TargetParamTypeMedicineSearch
+	TargetParamTypeAirQuality
+	TargetParamTypeStaminaConsumption
 	// ... other target param types
 )
 
@@ -114,10 +114,10 @@ func (wbs *WaterBodyStats) Scan(value interface{}) error {
 
 // ZoneEffect represents an effect that a zone has on targets inside it
 // These effects are calculated dynamically and not stored in DB
+// Positive values are buffs, negative values are debuffs
 type ZoneEffect struct {
-	EffectType   EffectType
 	ResourceType TargetParamType
-	Value        float32
+	Value        float32 // Positive for buff, negative for debuff
 }
 
 // ZonePG model for PostgreSQL storage
@@ -187,40 +187,82 @@ func ZoneFromPG(pg *ZonePG) *Zone {
 	}
 }
 
-// CalculateEffects calculates zone effects based on building and water statistics
-// This should be called after loading a zone from the database
+// CalculateEffects calculates zone effects based on building types and their areas
 func (z *Zone) CalculateEffects() {
 	z.Effects = []ZoneEffect{}
 
-	// Example effect calculation based on buildings
-	if z.Buildings.TotalCount > 0 {
-		// Health buff based on building density
-		healthEffect := ZoneEffect{
-			EffectType:   EffectTypeBuff,
-			ResourceType: TargetParamTypeHealth,
-			Value:        float32(z.Buildings.TotalCount) * 0.1, // 0.1 health per building
-		}
-		z.Effects = append(z.Effects, healthEffect)
+	// Initialize effect accumulator map
+	effectAccumulator := make(map[TargetParamType]float32)
 
-		// Stamina buff based on high-rise buildings
-		if z.Buildings.HighRiseCount > 0 || z.Buildings.SkyscraperCount > 0 {
-			staminaEffect := ZoneEffect{
-				EffectType:   EffectTypeBuff,
-				ResourceType: TargetParamTypeStamina,
-				Value:        float32(z.Buildings.HighRiseCount+z.Buildings.SkyscraperCount) * 0.2,
-			}
-			z.Effects = append(z.Effects, staminaEffect)
+	// Process building effects based on building types and areas
+	for buildingType, buildingArea := range z.Buildings.BuildingAreas {
+		if buildingArea <= 0 {
+			continue
+		}
+
+		// Get effects configuration for this building type
+		effects := mappers.GetBuildingEffects(buildingType)
+		if effects == nil {
+			continue
+		}
+
+		// Calculate area coefficient (effect strength based on area)
+		areaCoefficient := z.calculateAreaCoefficient(buildingArea)
+
+		// Apply each effect type (preserving original sign - positive for buff, negative for debuff)
+		if effects.SleepQuality != 0 {
+			effectValue := float32(effects.SleepQuality) * areaCoefficient
+			effectAccumulator[TargetParamTypeSleepQuality] += effectValue
+		}
+
+		if effects.FoodSearch != 0 {
+			effectValue := float32(effects.FoodSearch) * areaCoefficient
+			effectAccumulator[TargetParamTypeFoodSearch] += effectValue
+		}
+
+		if effects.WaterSearch != 0 {
+			effectValue := float32(effects.WaterSearch) * areaCoefficient
+			effectAccumulator[TargetParamTypeWaterSearch] += effectValue
+		}
+
+		if effects.MedicineSearch != 0 {
+			effectValue := float32(effects.MedicineSearch) * areaCoefficient
+			effectAccumulator[TargetParamTypeMedicineSearch] += effectValue
+		}
+
+		if effects.AirQuality != 0 {
+			effectValue := float32(effects.AirQuality) * areaCoefficient
+			effectAccumulator[TargetParamTypeAirQuality] += effectValue
+		}
+
+		if effects.StaminaConsumption != 0 {
+			effectValue := float32(effects.StaminaConsumption) * areaCoefficient
+			effectAccumulator[TargetParamTypeStaminaConsumption] += effectValue
 		}
 	}
 
-	// Example effect calculation based on water bodies
-	if z.WaterBodies.TotalCount > 0 {
-		// Strength debuff near water
-		strengthEffect := ZoneEffect{
-			EffectType:   EffectTypeDebuff,
-			ResourceType: TargetParamTypeStrength,
-			Value:        float32(z.WaterBodies.TotalArea) * 0.001,
+	// Convert accumulated effects to ZoneEffect array
+	for paramType, value := range effectAccumulator {
+		if value == 0 {
+			continue
 		}
-		z.Effects = append(z.Effects, strengthEffect)
+
+		effect := ZoneEffect{
+			ResourceType: paramType,
+			Value:        value, // Keep the original sign (positive for buff, negative for debuff)
+		}
+
+		z.Effects = append(z.Effects, effect)
 	}
+}
+
+// calculateAreaCoefficient calculates coefficient based on building area
+func (z *Zone) calculateAreaCoefficient(buildingArea float64) float32 {
+	if buildingArea <= 0 {
+		return 0
+	}
+
+	// Simple area-based scaling
+	// Convert area to coefficient (1000 sq meters = 1.0 coefficient)
+	return float32(buildingArea) / 1000.0
 }

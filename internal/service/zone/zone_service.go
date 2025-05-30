@@ -72,29 +72,64 @@ func (s *ZoneService) InitService(ctx context.Context) error {
 	defer s.initMutex.Unlock()
 
 	if s.initialized {
+		log.Println("ZoneService already initialized, skipping")
 		return nil
 	}
 
-	log.Println("Initializing ZoneService...")
-	startTime := time.Now()
+	log.Println("=== Starting ZoneService initialization ===")
+	totalStartTime := time.Now()
 
-	// Load data from PostgreSQL
-	log.Println("Loading zones from PostgreSQL...")
+	// Step 1: Load data from PostgreSQL
+	log.Println("Step 1: Loading zones from PostgreSQL...")
+	pgLoadStart := time.Now()
 	zones, err := s.loadAllZonesFromPG()
 	if err != nil {
+		log.Printf("ERROR: Failed to load zones from PostgreSQL after %v: %v", time.Since(pgLoadStart), err)
 		return fmt.Errorf("failed to load zones from PostgreSQL: %w", err)
 	}
+	pgLoadDuration := time.Since(pgLoadStart)
+	log.Printf("PostgreSQL loading completed: %d zones loaded in %v", len(zones), pgLoadDuration)
 
-	// Load zones into memory
+	// Step 2: Pre-calculate all zone effects
+	log.Println("Step 2: Pre-calculating zone effects...")
+	effectsStart := time.Now()
 	for _, zone := range zones {
-		s.storage.Set(zone.ID, zone)
+		zone.CalculateEffects()
 	}
+	effectsDuration := time.Since(effectsStart)
+	log.Printf("Effects calculation completed: %d zones processed in %v", len(zones), effectsDuration)
 
-	// Build spatial index
+	// Step 3: Load zones into memory storage
+	log.Println("Step 3: Loading zones into memory storage...")
+	memoryLoadStart := time.Now()
+	for i, zone := range zones {
+		s.storage.Set(zone.ID, zone)
+
+		if (i+1)%100000 == 0 || i == len(zones)-1 {
+			log.Printf("Memory loading progress: %d/%d zones (%.1f%%)",
+				i+1, len(zones), float64(i+1)/float64(len(zones))*100)
+		}
+	}
+	memoryLoadDuration := time.Since(memoryLoadStart)
+	log.Printf("Memory loading completed: %d zones stored in %v", len(zones), memoryLoadDuration)
+
+	// Step 4: Build spatial index
+	log.Println("Step 4: Building spatial R-tree index...")
+	indexBuildStart := time.Now()
 	s.rebuildSpatialIndex()
+	indexBuildDuration := time.Since(indexBuildStart)
+	log.Printf("Spatial index built in %v", indexBuildDuration)
 
-	log.Printf("Initialization complete: %d zones loaded in %v",
-		s.storage.Count(), time.Since(startTime))
+	// Final summary
+	totalDuration := time.Since(totalStartTime)
+	log.Printf("=== ZoneService initialization completed ===")
+	log.Printf("Total zones: %d", s.storage.Count())
+	log.Printf("Total time: %v", totalDuration)
+	log.Printf("Breakdown:")
+	log.Printf("  - PostgreSQL loading: %v (%.1f%%)", pgLoadDuration, float64(pgLoadDuration.Nanoseconds())/float64(totalDuration.Nanoseconds())*100)
+	log.Printf("  - Effects calculation: %v (%.1f%%)", effectsDuration, float64(effectsDuration.Nanoseconds())/float64(totalDuration.Nanoseconds())*100)
+	log.Printf("  - Memory storage: %v (%.1f%%)", memoryLoadDuration, float64(memoryLoadDuration.Nanoseconds())/float64(totalDuration.Nanoseconds())*100)
+	log.Printf("  - Spatial indexing: %v (%.1f%%)", indexBuildDuration, float64(indexBuildDuration.Nanoseconds())/float64(totalDuration.Nanoseconds())*100)
 
 	s.initialized = true
 	return nil
@@ -114,8 +149,7 @@ func (s *ZoneService) loadAllZonesFromPG() ([]*model.Zone, error) {
 	zones := make([]*model.Zone, len(pgZones))
 	for i, pgZone := range pgZones {
 		zones[i] = model.ZoneFromPG(pgZone)
-		// Calculate effects based on zone properties
-		zones[i].CalculateEffects()
+		// Effects will be calculated later
 	}
 
 	return zones, nil
@@ -269,14 +303,8 @@ func (s *ZoneService) GetEffectsForTarget(lat, lng float64) map[model.TargetPara
 		}
 
 		for _, effect := range zone.Effects {
-			currentValue := effects[effect.ResourceType]
-
-			// Apply effect based on type (buff or debuff)
-			if effect.EffectType == model.EffectTypeBuff {
-				effects[effect.ResourceType] = currentValue + effect.Value
-			} else {
-				effects[effect.ResourceType] = currentValue - effect.Value
-			}
+			// Simply add the effect value (positive or negative)
+			effects[effect.ResourceType] += effect.Value
 		}
 	}
 
